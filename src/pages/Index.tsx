@@ -1,43 +1,96 @@
 import { useState, FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { Building2, Lock, User, AlertCircle, Loader2 } from "lucide-react";
+import { AxiosError } from "axios";
+import {
+  Building2,
+  Lock,
+  User,
+  AlertCircle,
+  Loader2,
+  CheckCircle2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useAuth } from "@/context/AuthContext";
+import { ApiResponse } from "@/types/auth";
+import { mapBackendRoleToFrontendRole } from "@/lib/roles";
 
 const Index = () => {
+  const navigate = useNavigate();
+  const { login } = useAuth();
+
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const navigate = useNavigate();
+  const [successMessage, setSuccessMessage] = useState("");
+
+  const getLoginErrorMessage = (error: unknown) => {
+    const axiosError = error as AxiosError<ApiResponse<unknown>>;
+
+    if (axiosError.response?.status === 401) {
+      return "Tên đăng nhập hoặc mật khẩu không đúng.";
+    }
+
+    if (axiosError.response?.data?.message) {
+      return axiosError.response.data.message;
+    }
+
+    return "Không thể đăng nhập. Vui lòng kiểm tra backend hoặc kết nối mạng.";
+  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
+    setSuccessMessage("");
 
-    if (!username.trim() || !password.trim()) {
+    const trimmedUsername = username.trim();
+    const trimmedPassword = password.trim();
+
+    if (!trimmedUsername || !trimmedPassword) {
       setError("Vui lòng nhập đầy đủ tên đăng nhập và mật khẩu.");
       return;
     }
 
-    setLoading(true);
-    setTimeout(() => {
+    try {
+      setLoading(true);
+
+      const user = await login({
+        username: trimmedUsername,
+        password: trimmedPassword,
+      });
+
+      setSuccessMessage("Đăng nhập thành công. Đang chuyển hướng...");
+
+      const frontendRole = mapBackendRoleToFrontendRole(user.role);
+
+      setTimeout(() => {
+        if (frontendRole === "director") {
+          navigate("/approvals", { replace: true });
+          return;
+        }
+
+        navigate("/dashboard", { replace: true });
+      }, 1200);
+    } catch (error) {
+      setError(getLoginErrorMessage(error));
       setLoading(false);
-      navigate("/dashboard");
-    }, 600);
+    }
   };
 
   return (
     <main className="min-h-screen flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        {/* Brand header */}
         <div className="flex flex-col items-center mb-8">
           <div
             className="h-16 w-16 rounded-2xl flex items-center justify-center mb-4 shadow-[var(--shadow-card)]"
             style={{ background: "var(--gradient-primary)" }}
           >
-            <Building2 className="h-8 w-8 text-primary-foreground" strokeWidth={2.2} />
+            <Building2
+              className="h-8 w-8 text-primary-foreground"
+              strokeWidth={2.2}
+            />
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">
             HR Management System
@@ -47,13 +100,14 @@ const Index = () => {
           </p>
         </div>
 
-        {/* Login card */}
         <div
           className="bg-card border border-border rounded-2xl p-8"
           style={{ boxShadow: "var(--shadow-card)" }}
         >
           <div className="mb-6">
-            <h2 className="text-xl font-semibold text-card-foreground">Đăng nhập</h2>
+            <h2 className="text-xl font-semibold text-card-foreground">
+              Đăng nhập
+            </h2>
             <p className="text-sm text-muted-foreground mt-1">
               Vui lòng đăng nhập để tiếp tục
             </p>
@@ -98,18 +152,24 @@ const Index = () => {
               </div>
             </div>
 
-            {/* Error message area */}
             <div
               role="alert"
               aria-live="polite"
               className={`min-h-[2.5rem] transition-opacity ${
-                error ? "opacity-100" : "opacity-0"
+                error || successMessage ? "opacity-100" : "opacity-0"
               }`}
             >
               {error && (
                 <div className="flex items-start gap-2 rounded-lg bg-destructive/10 border border-destructive/20 px-3 py-2 text-sm text-destructive">
                   <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
                   <span>{error}</span>
+                </div>
+              )}
+
+              {successMessage && (
+                <div className="flex items-start gap-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-3 py-2 text-sm text-emerald-700">
+                  <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
+                  <span>{successMessage}</span>
                 </div>
               )}
             </div>
@@ -123,7 +183,9 @@ const Index = () => {
               {loading ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  Đang đăng nhập...
+                  {successMessage
+                    ? "Đang chuyển hướng..."
+                    : "Đang đăng nhập..."}
                 </>
               ) : (
                 "Đăng nhập"
