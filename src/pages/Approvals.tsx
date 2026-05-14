@@ -1,41 +1,39 @@
-import { useMemo, useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { toast } from "sonner";
+import { useMemo, useState, ReactNode } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { format } from "date-fns";
 import {
+  AlertTriangle,
+  CheckCircle2,
+  Clock3,
   Eye,
-  Check,
-  X,
-  ArrowLeft,
-  UserPlus,
-  UserMinus,
-  Search,
+  FilePenLine,
+  Loader2,
+  RefreshCcw,
   ShieldAlert,
-  Clock,
+  UserMinus,
+  UserPlus,
+  XCircle,
 } from "lucide-react";
+import { toast } from "sonner";
 
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
+import { getApiErrorMessage } from "@/lib/getApiErrorMessage";
+import { approvalService } from "@/services/approvalService";
+import {
+  ApproveCreateEmployeePayload,
+  ParsedApprovalPayload,
+  PendingApproval,
+} from "@/types/approval";
+import {
+  CreateEmployeePayload,
+  DeleteEmployeePayload,
+  UpdateEmployeePayload,
+} from "@/types/hrRequest";
+
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
-import { Separator } from "@/components/ui/separator";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -44,544 +42,985 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 
-type RequestType = "add" | "delete";
-type RequestStatus = "pending" | "approved" | "rejected";
+type ApprovalAction = "approve" | "reject";
 
-type AddPayload = {
-  name: string;
-  gender: string;
-  dob: string;
-  phone: string;
-  department: string;
-  position: string;
-  note?: string;
+type SalaryFormState = {
+  baseSalary: string;
+  salaryCoefficient: string;
+  positionCoefficient: string;
+  allowance: string;
+  formulaVersion: string;
 };
 
-type DeletePayload = {
-  employeeId: string;
-  employeeName: string;
-  department: string;
-  reason: string;
+const INITIAL_SALARY_FORM: SalaryFormState = {
+  baseSalary: "",
+  salaryCoefficient: "1",
+  positionCoefficient: "1",
+  allowance: "0",
+  formulaVersion: "v1",
 };
 
-type HRRequest = {
-  id: string;
-  type: RequestType;
-  createdBy: string;
-  createdAt: string;
-  status: RequestStatus;
-  add?: AddPayload;
-  remove?: DeletePayload;
+const POSITION_LABELS: Record<number, string> = {
+  1: "Nhân viên",
+  2: "Trưởng phòng",
+  3: "Giám đốc",
 };
 
-const INITIAL_REQUESTS: HRRequest[] = [
-  {
-    id: "YC-2026-0012",
-    type: "add",
-    createdBy: "Trần Thị Bình (HR)",
-    createdAt: "02/05/2026 09:14",
-    status: "pending",
-    add: {
-      name: "Phạm Hoàng Nam",
-      gender: "Nam",
-      dob: "18/07/1996",
-      phone: "0905 112 233",
-      department: "Kỹ thuật",
-      position: "Kỹ sư phần mềm",
-      note: "Ứng viên đã ký offer ngày 28/04/2026.",
-    },
-  },
-  {
-    id: "YC-2026-0013",
-    type: "delete",
-    createdBy: "Trần Thị Bình (HR)",
-    createdAt: "02/05/2026 10:02",
-    status: "pending",
-    remove: {
-      employeeId: "NV006",
-      employeeName: "Vũ Thị Hà",
-      department: "Nhân sự",
-      reason: "Nhân viên đã nộp đơn nghỉ việc, hoàn tất bàn giao ngày 30/04/2026.",
-    },
-  },
-  {
-    id: "YC-2026-0014",
-    type: "add",
-    createdBy: "Nguyễn Thị Mai (HR)",
-    createdAt: "03/05/2026 08:45",
-    status: "pending",
-    add: {
-      name: "Lý Thu Trang",
-      gender: "Nữ",
-      dob: "22/11/1998",
-      phone: "0934 556 778",
-      department: "Marketing",
-      position: "Designer",
-    },
-  },
-  {
-    id: "YC-2026-0010",
-    type: "add",
-    createdBy: "Trần Thị Bình (HR)",
-    createdAt: "30/04/2026 14:21",
-    status: "approved",
-    add: {
-      name: "Đỗ Quang Vinh",
-      gender: "Nam",
-      dob: "05/02/1993",
-      phone: "0978 222 333",
-      department: "Tài chính",
-      position: "Kế toán viên",
-    },
-  },
-  {
-    id: "YC-2026-0009",
-    type: "delete",
-    createdBy: "Nguyễn Thị Mai (HR)",
-    createdAt: "29/04/2026 16:08",
-    status: "rejected",
-    remove: {
-      employeeId: "NV003",
-      employeeName: "Lê Quốc Cường",
-      department: "Tài chính",
-      reason: "Đề xuất chấm dứt hợp đồng do hiệu suất.",
-    },
-  },
-];
+function getPositionLabel(positionId?: number | string | null) {
+  if (positionId === undefined || positionId === null || positionId === "") {
+    return "—";
+  }
 
-const TYPE_META: Record<RequestType, { label: string; icon: typeof UserPlus; className: string }> = {
-  add: { label: "Thêm nhân viên", icon: UserPlus, className: "bg-blue-100 text-blue-700 border-blue-200" },
-  delete: { label: "Xóa nhân viên", icon: UserMinus, className: "bg-rose-100 text-rose-700 border-rose-200" },
-};
+  const numericPositionId = Number(positionId);
 
-const STATUS_META: Record<RequestStatus, { label: string; className: string }> = {
-  pending: { label: "Chờ duyệt", className: "bg-amber-100 text-amber-700 border-amber-200 hover:bg-amber-100" },
-  approved: { label: "Đã phê duyệt", className: "bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-100" },
-  rejected: { label: "Đã từ chối", className: "bg-rose-100 text-rose-700 border-rose-200 hover:bg-rose-100" },
-};
+  return POSITION_LABELS[numericPositionId] ?? `Position #${positionId}`;
+}
 
-const formatVND = (n: number) =>
-  new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(n);
+function getUpdateFieldLabel(key: string) {
+  const labels: Record<string, string> = {
+    employeeId: "Mã nhân viên",
+    fullName: "Họ tên",
+    gender: "Giới tính",
+    dateOfBirth: "Ngày sinh",
+    phoneNumber: "Số điện thoại",
+    departmentId: "Phòng ban",
+    positionId: "Vị trí công việc",
+    employmentStatus: "Trạng thái làm việc",
+    isActive: "Tình trạng tài khoản",
+  };
 
-// ---- Approval form schema (only for add) ----
-const approveAddSchema = z.object({
-  salary: z
-    .coerce.number({ invalid_type_error: "Lương phải là số" })
-    .int("Lương phải là số nguyên")
-    .min(1_000_000, "Lương tối thiểu 1.000.000 ₫")
-    .max(1_000_000_000, "Lương tối đa 1.000.000.000 ₫"),
-  allowance: z
-    .coerce.number({ invalid_type_error: "Phụ cấp phải là số" })
-    .int("Phụ cấp phải là số nguyên")
-    .min(0, "Phụ cấp không được âm")
-    .max(500_000_000, "Phụ cấp quá lớn"),
-  note: z.string().trim().max(500, "Ghi chú không vượt quá 500 ký tự").optional(),
-});
-type ApproveAddForm = z.infer<typeof approveAddSchema>;
+  return labels[key] ?? key;
+}
 
-function FieldRow({ label, value, mono }: { label: string; value: React.ReactNode; mono?: boolean }) {
+function getUpdateFieldValue(key: string, value: unknown) {
+  if (key === "positionId") {
+    return getPositionLabel(value as number | string);
+  }
+
+  if (key === "isActive") {
+    return value ? "Đang hoạt động" : "Vô hiệu hóa";
+  }
+
+  return String(value);
+}
+
+const REQUEST_TYPE_META = {
+  CREATE_EMPLOYEE: {
+    label: "Thêm nhân viên",
+    badgeClass:
+      "bg-emerald-500/10 text-emerald-700 border-emerald-500/20 dark:text-emerald-300",
+    icon: UserPlus,
+  },
+  UPDATE_EMPLOYEE: {
+    label: "Cập nhật nhân viên",
+    badgeClass:
+      "bg-blue-500/10 text-blue-700 border-blue-500/20 dark:text-blue-300",
+    icon: FilePenLine,
+  },
+  DELETE_EMPLOYEE: {
+    label: "Xóa nhân viên",
+    badgeClass: "bg-destructive/10 text-destructive border-destructive/20",
+    icon: UserMinus,
+  },
+} as const;
+
+function parseRequestPayload(request: PendingApproval): ParsedApprovalPayload {
+  try {
+    return JSON.parse(request.RequestPayload) as ParsedApprovalPayload;
+  } catch {
+    return {} as ParsedApprovalPayload;
+  }
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) {
+    return "—";
+  }
+
+  try {
+    return format(new Date(value), "dd/MM/yyyy HH:mm");
+  } catch {
+    return value;
+  }
+}
+
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat("vi-VN", {
+    style: "currency",
+    currency: "VND",
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+function getEmployeeDisplayName(request: PendingApproval) {
+  const payload = parseRequestPayload(request);
+
+  if (request.RequestType === "CREATE_EMPLOYEE") {
+    return (payload as CreateEmployeePayload).fullName || "Nhân viên mới";
+  }
+
+  if (request.RequestType === "UPDATE_EMPLOYEE") {
+    return (payload as UpdateEmployeePayload).employeeId || "Nhân viên";
+  }
+
+  return (payload as DeleteEmployeePayload).employeeId || "Nhân viên";
+}
+
+function getRequestDescription(request: PendingApproval) {
+  const payload = parseRequestPayload(request);
+
+  if (request.RequestType === "CREATE_EMPLOYEE") {
+    const createPayload = payload as CreateEmployeePayload;
+
+    return [
+      createPayload.fullName,
+      createPayload.departmentId,
+      createPayload.role,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }
+
+  if (request.RequestType === "UPDATE_EMPLOYEE") {
+    const updatePayload = payload as UpdateEmployeePayload;
+    const updatedFields = Object.keys(updatePayload).filter(
+      (key) => key !== "employeeId",
+    );
+
+    return `Cập nhật ${updatedFields.length} trường thông tin`;
+  }
+
+  const deletePayload = payload as DeleteEmployeePayload;
+  return deletePayload.reason || "Yêu cầu vô hiệu hóa nhân viên";
+}
+
+function buildSalaryApprovalPayload(
+  form: SalaryFormState,
+): ApproveCreateEmployeePayload {
+  return {
+    baseSalary: Number(form.baseSalary),
+    salaryCoefficient: Number(form.salaryCoefficient),
+    positionCoefficient: Number(form.positionCoefficient),
+    allowance: Number(form.allowance),
+    formulaVersion: form.formulaVersion || "v1",
+  };
+}
+
+function validateSalaryForm(form: SalaryFormState) {
+  const payload = buildSalaryApprovalPayload(form);
+
+  if (!payload.baseSalary || payload.baseSalary <= 0) {
+    return "Lương cơ bản phải lớn hơn 0.";
+  }
+
+  if (!payload.salaryCoefficient || payload.salaryCoefficient <= 0) {
+    return "Hệ số lương phải lớn hơn 0.";
+  }
+
+  if (!payload.positionCoefficient || payload.positionCoefficient <= 0) {
+    return "Hệ số chức vụ phải lớn hơn 0.";
+  }
+
+  if (payload.allowance < 0) {
+    return "Phụ cấp không được nhỏ hơn 0.";
+  }
+
+  return null;
+}
+
+function DialogScrollableBody({ children }: { children: ReactNode }) {
   return (
-    <div className="grid grid-cols-3 gap-3 py-2">
-      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className={`col-span-2 text-sm text-foreground ${mono ? "font-mono" : "font-medium"}`}>{value}</div>
+    <div className="min-h-0 flex-1 overflow-y-auto px-1 pr-3">
+      <div className="space-y-4 pb-2">{children}</div>
+    </div>
+  );
+}
+
+function DetailRow({
+  label,
+  value,
+}: {
+  label: string;
+  value?: string | number | boolean | null;
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-muted/30 p-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 break-words text-sm font-medium text-foreground">
+        {value === undefined || value === null || value === ""
+          ? "—"
+          : String(value)}
+      </p>
+    </div>
+  );
+}
+
+function PayloadDetails({ request }: { request: PendingApproval }) {
+  const payload = parseRequestPayload(request);
+
+  if (request.RequestType === "CREATE_EMPLOYEE") {
+    const data = payload as CreateEmployeePayload;
+
+    return (
+      <div className="grid gap-3 md:grid-cols-2">
+        <DetailRow label="Họ tên" value={data.fullName} />
+        <DetailRow label="Giới tính" value={data.gender} />
+        <DetailRow label="Ngày sinh" value={data.dateOfBirth} />
+        <DetailRow label="Số điện thoại" value={data.phoneNumber} />
+        <DetailRow label="Mã số thuế" value={data.taxId} />
+        <DetailRow label="Phòng ban" value={data.departmentId} />
+        <DetailRow
+          label="Vị trí công việc"
+          value={getPositionLabel(data.positionId)}
+        />
+        <DetailRow label="Quyền truy cập" value={data.role} />
+        <DetailRow label="Username" value={data.username} />
+        <DetailRow label="Password" value="Đã được ẩn" />
+      </div>
+    );
+  }
+
+  if (request.RequestType === "UPDATE_EMPLOYEE") {
+    const data = payload as UpdateEmployeePayload;
+    const entries = Object.entries(data).filter(
+      ([, value]) => value !== undefined && value !== null && value !== "",
+    );
+
+    return (
+      <div className="space-y-4">
+        <Alert className="border-blue-500/30 bg-blue-500/5">
+          <FilePenLine className="h-4 w-4 text-blue-600" />
+          <AlertTitle className="text-sm">
+            Chỉ các trường bên dưới sẽ được cập nhật
+          </AlertTitle>
+          <AlertDescription className="text-xs text-muted-foreground">
+            Các field không xuất hiện trong request sẽ được giữ nguyên ở
+            backend.
+          </AlertDescription>
+        </Alert>
+
+        {entries.map(([key, value]) => (
+          <DetailRow
+            key={key}
+            label={getUpdateFieldLabel(key)}
+            value={getUpdateFieldValue(key, value)}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  const data = payload as DeleteEmployeePayload;
+
+  return (
+    <div className="space-y-4">
+      <Alert className="border-destructive/30 bg-destructive/5">
+        <ShieldAlert className="h-4 w-4 text-destructive" />
+        <AlertTitle className="text-sm">Yêu cầu xóa nhân viên</AlertTitle>
+        <AlertDescription className="text-xs text-muted-foreground">
+          Backend xử lý theo hướng soft delete: vô hiệu hóa nhân viên và tài
+          khoản, không xóa vật lý dữ liệu.
+        </AlertDescription>
+      </Alert>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        <DetailRow label="Mã nhân viên" value={data.employeeId} />
+        <DetailRow label="Lý do" value={data.reason} />
+      </div>
     </div>
   );
 }
 
 export default function Approvals() {
-  const [requests, setRequests] = useState<HRRequest[]>(INITIAL_REQUESTS);
-  const [query, setQuery] = useState("");
-  const [typeFilter, setTypeFilter] = useState<string>("all");
-  const [statusFilter, setStatusFilter] = useState<string>("pending");
+  const queryClient = useQueryClient();
 
-  const [selected, setSelected] = useState<HRRequest | null>(null);
-  const [rejectOpen, setRejectOpen] = useState(false);
+  const [selectedRequest, setSelectedRequest] =
+    useState<PendingApproval | null>(null);
+  const [action, setAction] = useState<ApprovalAction | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [salaryForm, setSalaryForm] =
+    useState<SalaryFormState>(INITIAL_SALARY_FORM);
 
-  const form = useForm<ApproveAddForm>({
-    resolver: zodResolver(approveAddSchema),
-    defaultValues: { salary: undefined as unknown as number, allowance: 0, note: "" },
+  const pendingQuery = useQuery({
+    queryKey: ["approvals", "pending"],
+    queryFn: approvalService.getPending,
   });
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return requests.filter((r) => {
-      if (typeFilter !== "all" && r.type !== typeFilter) return false;
-      if (statusFilter !== "all" && r.status !== statusFilter) return false;
-      if (!q) return true;
-      const target = r.type === "add" ? r.add?.name : r.remove?.employeeName;
-      return (
-        r.id.toLowerCase().includes(q) ||
-        r.createdBy.toLowerCase().includes(q) ||
-        (target?.toLowerCase().includes(q) ?? false)
-      );
-    });
-  }, [requests, query, typeFilter, statusFilter]);
+  const approveMutation = useMutation({
+    mutationFn: ({
+      request,
+      payload,
+    }: {
+      request: PendingApproval;
+      payload?: ApproveCreateEmployeePayload;
+    }) =>
+      approvalService.approve(request.RequestID, payload).then((result) => ({
+        request,
+        result,
+      })),
 
-  const openDetail = (r: HRRequest) => {
-    setSelected(r);
-    form.reset({ salary: undefined as unknown as number, allowance: 0, note: "" });
-  };
-  const closeDetail = () => setSelected(null);
+    onSuccess: ({ request, result }) => {
+      const employeeId = result?.EmployeeID
+        ? ` · Nhân viên: ${result.EmployeeID}`
+        : "";
 
-  const updateStatus = (id: string, status: RequestStatus) => {
-    setRequests((prev) => prev.map((r) => (r.id === id ? { ...r, status } : r)));
-  };
-
-  const handleApprove = (data?: ApproveAddForm) => {
-    if (!selected) return;
-    if (selected.type === "add") {
-      toast.success(`Đã phê duyệt yêu cầu ${selected.id}`, {
-        description: `Lương: ${formatVND(data!.salary)} · Phụ cấp: ${formatVND(data!.allowance)}`,
+      toast.success("Đã duyệt yêu cầu", {
+        description: `Request #${request.RequestID} đã được phê duyệt${employeeId}.`,
       });
-    } else {
-      toast.success(`Đã phê duyệt yêu cầu ${selected.id}`);
+
+      closeActionDialog();
+      queryClient.invalidateQueries({ queryKey: ["approvals", "pending"] });
+      queryClient.invalidateQueries({ queryKey: ["employees"] });
+      queryClient.invalidateQueries({ queryKey: ["hr-requests"] });
+    },
+
+    onError: (error) => {
+      toast.error("Không thể duyệt yêu cầu", {
+        description: getApiErrorMessage(
+          error,
+          "Có lỗi xảy ra khi duyệt yêu cầu.",
+        ),
+      });
+    },
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: ({
+      request,
+      rejectionReason,
+    }: {
+      request: PendingApproval;
+      rejectionReason: string;
+    }) =>
+      approvalService
+        .reject(request.RequestID, {
+          rejectionReason,
+        })
+        .then((result) => ({
+          request,
+          result,
+        })),
+
+    onSuccess: ({ request }) => {
+      toast.success("Đã từ chối yêu cầu", {
+        description: `Request #${request.RequestID} đã bị từ chối.`,
+      });
+
+      closeActionDialog();
+      queryClient.invalidateQueries({ queryKey: ["approvals", "pending"] });
+      queryClient.invalidateQueries({ queryKey: ["hr-requests"] });
+    },
+
+    onError: (error) => {
+      toast.error("Không thể từ chối yêu cầu", {
+        description: getApiErrorMessage(
+          error,
+          "Có lỗi xảy ra khi từ chối yêu cầu.",
+        ),
+      });
+    },
+  });
+
+  const groupedRequests = useMemo(() => {
+    const requests = pendingQuery.data ?? [];
+
+    return {
+      all: requests,
+      create: requests.filter(
+        (request) => request.RequestType === "CREATE_EMPLOYEE",
+      ),
+      update: requests.filter(
+        (request) => request.RequestType === "UPDATE_EMPLOYEE",
+      ),
+      delete: requests.filter(
+        (request) => request.RequestType === "DELETE_EMPLOYEE",
+      ),
+    };
+  }, [pendingQuery.data]);
+
+  const isSubmitting = approveMutation.isPending || rejectMutation.isPending;
+
+  const openApproveDialog = (request: PendingApproval) => {
+    setSelectedRequest(request);
+    setAction("approve");
+    setRejectReason("");
+    setSalaryForm(INITIAL_SALARY_FORM);
+  };
+
+  const openRejectDialog = (request: PendingApproval) => {
+    setSelectedRequest(request);
+    setAction("reject");
+    setRejectReason("");
+    setSalaryForm(INITIAL_SALARY_FORM);
+  };
+
+  const closeActionDialog = () => {
+    setSelectedRequest(null);
+    setAction(null);
+    setRejectReason("");
+    setSalaryForm(INITIAL_SALARY_FORM);
+  };
+
+  const handleApprove = () => {
+    if (!selectedRequest) {
+      return;
     }
-    updateStatus(selected.id, "approved");
-    closeDetail();
+
+    if (selectedRequest.RequestType === "CREATE_EMPLOYEE") {
+      const errorMessage = validateSalaryForm(salaryForm);
+
+      if (errorMessage) {
+        toast.error("Thông tin lương chưa hợp lệ", {
+          description: errorMessage,
+        });
+        return;
+      }
+
+      approveMutation.mutate({
+        request: selectedRequest,
+        payload: buildSalaryApprovalPayload(salaryForm),
+      });
+
+      return;
+    }
+
+    approveMutation.mutate({
+      request: selectedRequest,
+    });
   };
 
   const handleReject = () => {
-    if (!selected) return;
-    if (rejectReason.trim().length < 5) {
-      toast.error("Vui lòng nhập lý do từ chối (ít nhất 5 ký tự)");
+    if (!selectedRequest) {
       return;
     }
-    toast.success(`Đã từ chối yêu cầu ${selected.id}`);
-    updateStatus(selected.id, "rejected");
-    setRejectOpen(false);
-    setRejectReason("");
-    closeDetail();
+
+    const trimmedReason = rejectReason.trim();
+
+    if (trimmedReason.length < 5) {
+      toast.error("Lý do từ chối chưa hợp lệ", {
+        description: "Vui lòng nhập lý do từ chối ít nhất 5 ký tự.",
+      });
+      return;
+    }
+
+    rejectMutation.mutate({
+      request: selectedRequest,
+      rejectionReason: trimmedReason,
+    });
   };
 
-  const counts = useMemo(
-    () => ({
-      pending: requests.filter((r) => r.status === "pending").length,
-      approved: requests.filter((r) => r.status === "approved").length,
-      rejected: requests.filter((r) => r.status === "rejected").length,
-    }),
-    [requests],
-  );
+  const renderRequestCard = (request: PendingApproval) => {
+    const meta = REQUEST_TYPE_META[request.RequestType];
+    const Icon = meta.icon;
+
+    return (
+      <Card key={request.RequestID} className="overflow-hidden shadow-sm">
+        <CardContent className="p-0">
+          <div className="flex flex-col gap-4 p-5 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0 flex-1 space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge
+                  variant="outline"
+                  className={cn("gap-1", meta.badgeClass)}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {meta.label}
+                </Badge>
+
+                <Badge variant="outline" className="gap-1">
+                  <Clock3 className="h-3.5 w-3.5" />
+                  PENDING
+                </Badge>
+
+                <span className="text-xs text-muted-foreground">
+                  #{request.RequestID}
+                </span>
+              </div>
+
+              <div>
+                <h3 className="truncate text-base font-semibold text-foreground">
+                  {getEmployeeDisplayName(request)}
+                </h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {getRequestDescription(request)}
+                </p>
+              </div>
+
+              <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2 lg:grid-cols-3">
+                <span>
+                  Người tạo: {request.RequesterName || request.RequesterID}
+                </span>
+                <span>Ngày tạo: {formatDateTime(request.CreatedAt)}</span>
+                <span>Trạng thái: {request.Status}</span>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2 lg:justify-end">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSelectedRequest(request)}
+              >
+                <Eye className="h-4 w-4" />
+                Chi tiết
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => openRejectDialog(request)}
+              >
+                <XCircle className="h-4 w-4" />
+                Từ chối
+              </Button>
+
+              <Button size="sm" onClick={() => openApproveDialog(request)}>
+                <CheckCircle2 className="h-4 w-4" />
+                Duyệt
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
+
+  const renderRequestList = (items: PendingApproval[]) => {
+    if (pendingQuery.isLoading) {
+      return (
+        <div className="flex min-h-[260px] items-center justify-center rounded-xl border border-dashed border-border">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Đang tải danh sách yêu cầu...
+          </div>
+        </div>
+      );
+    }
+
+    if (pendingQuery.isError) {
+      return (
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Không thể tải danh sách yêu cầu</AlertTitle>
+          <AlertDescription>
+            {getApiErrorMessage(
+              pendingQuery.error,
+              "Có lỗi xảy ra khi tải danh sách yêu cầu cần duyệt.",
+            )}
+          </AlertDescription>
+        </Alert>
+      );
+    }
+
+    if (items.length === 0) {
+      return (
+        <div className="flex min-h-[260px] flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card p-6 text-center">
+          <CheckCircle2 className="mb-3 h-10 w-10 text-muted-foreground" />
+          <h3 className="text-sm font-medium text-foreground">
+            Không có yêu cầu đang chờ duyệt
+          </h3>
+          <p className="mt-1 max-w-md text-sm text-muted-foreground">
+            Khi HR tạo yêu cầu thêm, cập nhật hoặc xóa nhân viên, chúng sẽ xuất
+            hiện tại đây.
+          </p>
+        </div>
+      );
+    }
+
+    return <div className="space-y-3">{items.map(renderRequestCard)}</div>;
+  };
+
+  const isDetailDialogOpen = Boolean(selectedRequest && !action);
+  const isActionDialogOpen = Boolean(selectedRequest && action);
 
   return (
     <div className="space-y-6 p-6">
-      {/* Header */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Phê duyệt yêu cầu</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+            Phê duyệt yêu cầu nhân sự
+          </h1>
           <p className="text-sm text-muted-foreground">
-            Xem và phê duyệt các yêu cầu nhân sự do bộ phận HR gửi lên.
+            Director xem và xử lý các yêu cầu thêm, cập nhật hoặc xóa nhân viên.
           </p>
         </div>
-        <div className="flex gap-2">
-          <Badge variant="outline" className={STATUS_META.pending.className}>
-            <Clock className="h-3 w-3" /> {counts.pending} chờ duyệt
-          </Badge>
-          <Badge variant="outline" className={STATUS_META.approved.className}>
-            {counts.approved} đã duyệt
-          </Badge>
-          <Badge variant="outline" className={STATUS_META.rejected.className}>
-            {counts.rejected} đã từ chối
-          </Badge>
-        </div>
+
+        <Button
+          variant="outline"
+          onClick={() => pendingQuery.refetch()}
+          disabled={pendingQuery.isFetching}
+        >
+          {pendingQuery.isFetching ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <RefreshCcw className="h-4 w-4" />
+          )}
+          Làm mới
+        </Button>
       </div>
 
-      {/* Filters */}
-      <Card className="p-4 shadow-sm">
-        <div className="grid gap-3 md:grid-cols-12">
-          <div className="relative md:col-span-5">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Tìm theo mã yêu cầu, người tạo, nhân viên liên quan"
-              className="pl-9"
-            />
-          </div>
-          <div className="md:col-span-3">
-            <Select value={typeFilter} onValueChange={setTypeFilter}>
-              <SelectTrigger><SelectValue placeholder="Loại yêu cầu" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Tất cả loại</SelectItem>
-                <SelectItem value="add">Thêm nhân viên</SelectItem>
-                <SelectItem value="delete">Xóa nhân viên</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="md:col-span-3">
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger><SelectValue placeholder="Trạng thái" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Tất cả trạng thái</SelectItem>
-                <SelectItem value="pending">Chờ duyệt</SelectItem>
-                <SelectItem value="approved">Đã phê duyệt</SelectItem>
-                <SelectItem value="rejected">Đã từ chối</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <Button
-            variant="outline"
-            className="md:col-span-1"
-            onClick={() => {
-              setQuery("");
-              setTypeFilter("all");
-              setStatusFilter("pending");
-            }}
-          >
-            Đặt lại
-          </Button>
-        </div>
-      </Card>
+      <div className="grid gap-4 md:grid-cols-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground">
+              Tổng pending
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-semibold">
+              {groupedRequests.all.length}
+            </p>
+          </CardContent>
+        </Card>
 
-      {/* Table */}
-      <Card className="overflow-hidden shadow-sm">
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-muted/40 hover:bg-muted/40">
-                <TableHead className="whitespace-nowrap">Mã yêu cầu</TableHead>
-                <TableHead className="whitespace-nowrap">Loại yêu cầu</TableHead>
-                <TableHead className="whitespace-nowrap">Người tạo</TableHead>
-                <TableHead className="whitespace-nowrap">Nhân viên liên quan</TableHead>
-                <TableHead className="whitespace-nowrap">Ngày tạo</TableHead>
-                <TableHead className="whitespace-nowrap">Trạng thái</TableHead>
-                <TableHead className="whitespace-nowrap text-right">Hành động</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filtered.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={7} className="py-12 text-center text-muted-foreground">
-                    Không có yêu cầu phù hợp
-                  </TableCell>
-                </TableRow>
-              )}
-              {filtered.map((r) => {
-                const tMeta = TYPE_META[r.type];
-                const sMeta = STATUS_META[r.status];
-                const TIcon = tMeta.icon;
-                const target =
-                  r.type === "add"
-                    ? r.add?.name
-                    : `${r.remove?.employeeId} - ${r.remove?.employeeName}`;
-                return (
-                  <TableRow key={r.id}>
-                    <TableCell className="font-mono text-xs font-medium">{r.id}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className={tMeta.className}>
-                        <TIcon className="h-3 w-3" /> {tMeta.label}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap">{r.createdBy}</TableCell>
-                    <TableCell className="whitespace-nowrap">{target}</TableCell>
-                    <TableCell className="whitespace-nowrap text-muted-foreground">{r.createdAt}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className={sMeta.className}>{sMeta.label}</Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Button size="sm" variant="outline" onClick={() => openDetail(r)}>
-                        <Eye className="h-4 w-4" /> Xem chi tiết
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </div>
-      </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground">
+              Thêm nhân viên
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-semibold">
+              {groupedRequests.create.length}
+            </p>
+          </CardContent>
+        </Card>
 
-      {/* Detail dialog */}
-      <Dialog open={!!selected} onOpenChange={(o) => !o && closeDetail()}>
-        <DialogContent className="max-w-2xl">
-          {selected && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground">
+              Cập nhật
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-semibold">
+              {groupedRequests.update.length}
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground">
+              Xóa nhân viên
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-semibold">
+              {groupedRequests.delete.length}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Tabs defaultValue="all" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="all">
+            Tất cả ({groupedRequests.all.length})
+          </TabsTrigger>
+          <TabsTrigger value="create">
+            Thêm ({groupedRequests.create.length})
+          </TabsTrigger>
+          <TabsTrigger value="update">
+            Cập nhật ({groupedRequests.update.length})
+          </TabsTrigger>
+          <TabsTrigger value="delete">
+            Xóa ({groupedRequests.delete.length})
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="all">
+          {renderRequestList(groupedRequests.all)}
+        </TabsContent>
+
+        <TabsContent value="create">
+          {renderRequestList(groupedRequests.create)}
+        </TabsContent>
+
+        <TabsContent value="update">
+          {renderRequestList(groupedRequests.update)}
+        </TabsContent>
+
+        <TabsContent value="delete">
+          {renderRequestList(groupedRequests.delete)}
+        </TabsContent>
+      </Tabs>
+
+      <Dialog open={isDetailDialogOpen} onOpenChange={closeActionDialog}>
+        <DialogContent className="flex max-h-[90vh] max-w-3xl flex-col overflow-hidden">
+          {selectedRequest && (
             <>
               <DialogHeader>
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline" className={TYPE_META[selected.type].className}>
-                    {TYPE_META[selected.type].label}
-                  </Badge>
-                  <Badge variant="outline" className={STATUS_META[selected.status].className}>
-                    {STATUS_META[selected.status].label}
-                  </Badge>
-                </div>
-                <DialogTitle className="mt-2 font-mono text-base">{selected.id}</DialogTitle>
+                <DialogTitle>
+                  Chi tiết yêu cầu #{selectedRequest.RequestID}
+                </DialogTitle>
                 <DialogDescription>
-                  Tạo bởi {selected.createdBy} · {selected.createdAt}
+                  {REQUEST_TYPE_META[selectedRequest.RequestType].label} · Tạo
+                  lúc {formatDateTime(selectedRequest.CreatedAt)}
                 </DialogDescription>
               </DialogHeader>
 
-              <Separator />
+              <DialogScrollableBody>
+                <PayloadDetails request={selectedRequest} />
+              </DialogScrollableBody>
 
-              <div className="max-h-[55vh] overflow-y-auto pr-1">
-                {/* Submitted info */}
-                <h3 className="mb-2 text-sm font-semibold text-foreground">Thông tin gửi lên</h3>
-                <div className="rounded-lg border bg-muted/30 p-4">
-                  {selected.type === "add" && selected.add && (
-                    <div className="divide-y">
-                      <FieldRow label="Họ tên" value={selected.add.name} />
-                      <FieldRow label="Giới tính" value={selected.add.gender} />
-                      <FieldRow label="Ngày sinh" value={selected.add.dob} />
-                      <FieldRow label="Số điện thoại" value={selected.add.phone} />
-                      <FieldRow label="Phòng ban" value={selected.add.department} />
-                      <FieldRow label="Chức vụ" value={selected.add.position} />
-                      {selected.add.note && <FieldRow label="Ghi chú" value={selected.add.note} />}
-                    </div>
-                  )}
-                  {selected.type === "delete" && selected.remove && (
-                    <div className="divide-y">
-                      <FieldRow label="Mã NV" value={selected.remove.employeeId} mono />
-                      <FieldRow label="Họ tên" value={selected.remove.employeeName} />
-                      <FieldRow label="Phòng ban" value={selected.remove.department} />
-                      <FieldRow label="Lý do" value={selected.remove.reason} />
-                    </div>
-                  )}
-                </div>
-
-                {/* Salary form for add + pending */}
-                {selected.type === "add" && selected.status === "pending" && (
-                  <div className="mt-5">
-                    <div className="mb-2 flex items-center gap-2">
-                      <h3 className="text-sm font-semibold text-foreground">
-                        Thông tin tài chính (Giám đốc nhập)
-                      </h3>
-                      <Badge variant="outline" className="border-amber-300 bg-amber-100 text-amber-800">
-                        <ShieldAlert className="h-3 w-3" /> Nhạy cảm
-                      </Badge>
-                    </div>
-                    <Form {...form}>
-                      <form
-                        id="approve-form"
-                        onSubmit={form.handleSubmit(handleApprove)}
-                        className="grid gap-4 rounded-lg border border-amber-300/60 bg-amber-50/40 p-4 sm:grid-cols-2"
-                      >
-                        <FormField
-                          control={form.control}
-                          name="salary"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Lương (VND) *</FormLabel>
-                              <FormControl>
-                                <Input
-                                  type="number"
-                                  inputMode="numeric"
-                                  min={0}
-                                  placeholder="VD: 20000000"
-                                  {...field}
-                                  value={field.value ?? ""}
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name="allowance"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Phụ cấp (VND) *</FormLabel>
-                              <FormControl>
-                                <Input
-                                  type="number"
-                                  inputMode="numeric"
-                                  min={0}
-                                  placeholder="VD: 2000000"
-                                  {...field}
-                                  value={field.value ?? ""}
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name="note"
-                          render={({ field }) => (
-                            <FormItem className="sm:col-span-2">
-                              <FormLabel>Ghi chú phê duyệt</FormLabel>
-                              <FormControl>
-                                <Textarea
-                                  rows={3}
-                                  maxLength={500}
-                                  placeholder="Ghi chú nội bộ (không bắt buộc)"
-                                  {...field}
-                                />
-                              </FormControl>
-                              <FormDescription>Tối đa 500 ký tự.</FormDescription>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      </form>
-                    </Form>
-                  </div>
-                )}
-              </div>
-
-              <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-between">
-                <Button variant="ghost" onClick={closeDetail}>
-                  <ArrowLeft className="h-4 w-4" /> Quay lại
+              <DialogFooter className="shrink-0 border-t border-border pt-4">
+                <Button variant="outline" onClick={closeActionDialog}>
+                  Đóng
                 </Button>
-                {selected.status === "pending" && (
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      className="border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                      onClick={() => setRejectOpen(true)}
-                    >
-                      <X className="h-4 w-4" /> Từ chối
-                    </Button>
-                    {selected.type === "add" ? (
-                      <Button type="submit" form="approve-form">
-                        <Check className="h-4 w-4" /> Phê duyệt
-                      </Button>
-                    ) : (
-                      <Button onClick={() => handleApprove()}>
-                        <Check className="h-4 w-4" /> Phê duyệt
-                      </Button>
-                    )}
-                  </div>
-                )}
+                <Button
+                  variant="outline"
+                  onClick={() => openRejectDialog(selectedRequest)}
+                >
+                  <XCircle className="h-4 w-4" />
+                  Từ chối
+                </Button>
+                <Button onClick={() => openApproveDialog(selectedRequest)}>
+                  <CheckCircle2 className="h-4 w-4" />
+                  Duyệt
+                </Button>
               </DialogFooter>
             </>
           )}
         </DialogContent>
       </Dialog>
 
-      {/* Reject reason dialog */}
-      <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Từ chối yêu cầu</DialogTitle>
-            <DialogDescription>
-              Vui lòng nhập lý do từ chối. Lý do sẽ được gửi tới người tạo yêu cầu.
-            </DialogDescription>
-          </DialogHeader>
-          <Textarea
-            rows={4}
-            maxLength={500}
-            placeholder="Nhập lý do từ chối (tối thiểu 5 ký tự)"
-            value={rejectReason}
-            onChange={(e) => setRejectReason(e.target.value)}
-          />
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setRejectOpen(false)}>Hủy</Button>
-            <Button variant="destructive" onClick={handleReject}>
-              <X className="h-4 w-4" /> Xác nhận từ chối
-            </Button>
-          </DialogFooter>
+      <Dialog
+        open={isActionDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeActionDialog();
+          }
+        }}
+      >
+        <DialogContent className="flex max-h-[90vh] max-w-3xl flex-col overflow-hidden">
+          {selectedRequest && action === "approve" && (
+            <>
+              <DialogHeader>
+                <DialogTitle>
+                  Duyệt yêu cầu #{selectedRequest.RequestID}
+                </DialogTitle>
+                <DialogDescription>
+                  {REQUEST_TYPE_META[selectedRequest.RequestType].label}
+                </DialogDescription>
+              </DialogHeader>
+
+              <DialogScrollableBody>
+                {selectedRequest.RequestType === "CREATE_EMPLOYEE" && (
+                  <>
+                    <Alert className="border-primary/30 bg-primary/5">
+                      <CheckCircle2 className="h-4 w-4 text-primary" />
+                      <AlertTitle className="text-sm">
+                        Nhập thông tin lương
+                      </AlertTitle>
+                      <AlertDescription className="text-xs text-muted-foreground">
+                        Request thêm nhân viên cần thông tin lương để backend
+                        tạo cấu hình lương ban đầu.
+                      </AlertDescription>
+                    </Alert>
+
+                    <div className="grid gap-x-6 gap-y-5 lg:grid-cols-2">
+                      <div className="min-w-0 space-y-2">
+                        <Label htmlFor="baseSalary">Lương cơ bản *</Label>
+                        <Input
+                          id="baseSalary"
+                          type="number"
+                          min={0}
+                          placeholder="VD: 12000000"
+                          value={salaryForm.baseSalary}
+                          onChange={(event) =>
+                            setSalaryForm((current) => ({
+                              ...current,
+                              baseSalary: event.target.value,
+                            }))
+                          }
+                          disabled={isSubmitting}
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="allowance">Phụ cấp *</Label>
+                        <Input
+                          id="allowance"
+                          type="number"
+                          min={0}
+                          placeholder="VD: 1000000"
+                          value={salaryForm.allowance}
+                          onChange={(event) =>
+                            setSalaryForm((current) => ({
+                              ...current,
+                              allowance: event.target.value,
+                            }))
+                          }
+                          disabled={isSubmitting}
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="salaryCoefficient">Hệ số lương *</Label>
+                        <Input
+                          id="salaryCoefficient"
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          placeholder="VD: 1.5"
+                          value={salaryForm.salaryCoefficient}
+                          onChange={(event) =>
+                            setSalaryForm((current) => ({
+                              ...current,
+                              salaryCoefficient: event.target.value,
+                            }))
+                          }
+                          disabled={isSubmitting}
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="positionCoefficient">
+                          Hệ số chức vụ *
+                        </Label>
+                        <Input
+                          id="positionCoefficient"
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          placeholder="VD: 1.2"
+                          value={salaryForm.positionCoefficient}
+                          onChange={(event) =>
+                            setSalaryForm((current) => ({
+                              ...current,
+                              positionCoefficient: event.target.value,
+                            }))
+                          }
+                          disabled={isSubmitting}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-border bg-muted/30 p-3">
+                      <p className="text-xs text-muted-foreground">
+                        Lương dự kiến theo công thức hiện tại
+                      </p>
+                      <p className="mt-1 text-lg font-semibold">
+                        {formatCurrency(
+                          (Number(salaryForm.baseSalary) || 0) *
+                            (Number(salaryForm.salaryCoefficient) || 0) *
+                            (Number(salaryForm.positionCoefficient) || 0) +
+                            (Number(salaryForm.allowance) || 0),
+                        )}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Công thức hệ thống: v1
+                      </p>
+                    </div>
+                  </>
+                )}
+
+                {selectedRequest.RequestType === "UPDATE_EMPLOYEE" && (
+                  <Alert className="border-blue-500/30 bg-blue-500/5">
+                    <FilePenLine className="h-4 w-4 text-blue-600" />
+                    <AlertTitle className="text-sm">
+                      Xác nhận cập nhật nhân viên
+                    </AlertTitle>
+                    <AlertDescription className="text-xs text-muted-foreground">
+                      Request này không cần nhập thông tin lương. Backend sẽ cập
+                      nhật các field có trong RequestPayload.
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {selectedRequest.RequestType === "DELETE_EMPLOYEE" && (
+                  <Alert className="border-destructive/30 bg-destructive/5">
+                    <ShieldAlert className="h-4 w-4 text-destructive" />
+                    <AlertTitle className="text-sm">
+                      Xác nhận xóa nhân viên
+                    </AlertTitle>
+                    <AlertDescription className="text-xs text-muted-foreground">
+                      Backend sẽ vô hiệu hóa nhân viên và tài khoản liên quan.
+                      Đây là hành động nhạy cảm, hãy kiểm tra kỹ trước khi
+                      duyệt.
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                <PayloadDetails request={selectedRequest} />
+              </DialogScrollableBody>
+
+              <DialogFooter className="shrink-0 border-t border-border pt-4">
+                <Button
+                  variant="outline"
+                  onClick={closeActionDialog}
+                  disabled={isSubmitting}
+                >
+                  Hủy
+                </Button>
+                <Button onClick={handleApprove} disabled={isSubmitting}>
+                  {isSubmitting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="h-4 w-4" />
+                  )}
+                  Xác nhận duyệt
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+
+          {selectedRequest && action === "reject" && (
+            <>
+              <DialogHeader>
+                <DialogTitle>
+                  Từ chối yêu cầu #{selectedRequest.RequestID}
+                </DialogTitle>
+                <DialogDescription>
+                  Nhập lý do từ chối để HR có thể điều chỉnh và gửi lại nếu cần.
+                </DialogDescription>
+              </DialogHeader>
+
+              <DialogScrollableBody>
+                <PayloadDetails request={selectedRequest} />
+
+                <div className="space-y-2">
+                  <Label htmlFor="rejectReason">Lý do từ chối *</Label>
+                  <Textarea
+                    id="rejectReason"
+                    rows={4}
+                    placeholder="VD: Thiếu thông tin hợp lệ hoặc cần bổ sung hồ sơ..."
+                    value={rejectReason}
+                    onChange={(event) => setRejectReason(event.target.value)}
+                    disabled={isSubmitting}
+                  />
+                </div>
+              </DialogScrollableBody>
+
+              <DialogFooter className="shrink-0 border-t border-border pt-4">
+                <Button
+                  variant="outline"
+                  onClick={closeActionDialog}
+                  disabled={isSubmitting}
+                >
+                  Hủy
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={handleReject}
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <XCircle className="h-4 w-4" />
+                  )}
+                  Xác nhận từ chối
+                </Button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </div>
