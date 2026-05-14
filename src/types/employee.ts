@@ -27,6 +27,13 @@ export type EmployeeRecord = {
   FinalSalary?: string | number | null;
 };
 
+export type UpdateEmployeeProfilePayload = {
+  fullName?: string;
+  gender?: string | null;
+  dateOfBirth?: string;
+  phoneNumber?: string;
+};
+
 export type EmployeeListItem = EmployeeRecord;
 
 export type EmployeeDetail = EmployeeRecord;
