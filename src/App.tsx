@@ -31,14 +31,63 @@ const AppRoutes = () => {
         <Route element={<ProtectedRoute />}>
           <Route element={<AppLayout />}>
             <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/employees" element={<Employees />} />
-            <Route path="/employees/:id" element={<EmployeeDetail />} />
-            <Route path="/departments" element={<Departments />} />
-            <Route path="/requests" element={<Requests />} />
-            <Route path="/approvals" element={<Approvals />} />
-            <Route path="/salary" element={<Salary />} />
-            <Route path="/finance" element={<Finance />} />
-            <Route path="/audit" element={<Audit />} />
+
+            <Route
+              element={
+                <ProtectedRoute
+                  allowedRoles={[
+                    "director",
+                    "hrStaff",
+                    "hrManager",
+                    "manager",
+                    "employee",
+                  ]}
+                />
+              }
+            >
+              <Route path="/employees" element={<Employees />} />
+              <Route path="/employees/:id" element={<EmployeeDetail />} />
+            </Route>
+
+            <Route
+              element={
+                <ProtectedRoute
+                  allowedRoles={["director", "hrStaff", "hrManager"]}
+                />
+              }
+            >
+              <Route path="/departments" element={<Departments />} />
+            </Route>
+
+            <Route
+              element={
+                <ProtectedRoute allowedRoles={["hrStaff", "hrManager"]} />
+              }
+            >
+              <Route path="/requests" element={<Requests />} />
+            </Route>
+
+            <Route element={<ProtectedRoute allowedRoles={["director"]} />}>
+              <Route path="/approvals" element={<Approvals />} />
+              <Route path="/salary" element={<Salary />} />
+            </Route>
+
+            <Route
+              element={
+                <ProtectedRoute allowedRoles={["director", "finance"]} />
+              }
+            >
+              <Route path="/finance" element={<Finance />} />
+            </Route>
+
+            <Route
+              element={
+                <ProtectedRoute allowedRoles={["director", "hrManager"]} />
+              }
+            >
+              <Route path="/audit" element={<Audit />} />
+            </Route>
+
             <Route path="/profile" element={<Profile />} />
           </Route>
         </Route>
