@@ -14,7 +14,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/context/AuthContext";
 import { ApiResponse } from "@/types/auth";
-import { mapBackendRoleToFrontendRole } from "@/lib/roles";
 
 const Index = () => {
   const navigate = useNavigate();
@@ -63,14 +62,7 @@ const Index = () => {
 
       setSuccessMessage("Đăng nhập thành công. Đang chuyển hướng...");
 
-      const frontendRole = mapBackendRoleToFrontendRole(user.role);
-
       setTimeout(() => {
-        if (frontendRole === "director") {
-          navigate("/approvals", { replace: true });
-          return;
-        }
-
         navigate("/dashboard", { replace: true });
       }, 1200);
     } catch (error) {
