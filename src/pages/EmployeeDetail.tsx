@@ -1,71 +1,144 @@
+import type { ComponentType, ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
-  Pencil,
-  Trash2,
-  ShieldAlert,
-  Mail,
-  Phone,
-  MapPin,
-  Calendar,
-  User,
-  Building2,
-  Briefcase,
   BadgeCheck,
+  Briefcase,
+  Building2,
+  Calendar,
   CreditCard,
-  Wallet,
-  Receipt,
   Landmark,
+  Loader2,
+  Mail,
+  MapPin,
+  Pencil,
+  Phone,
+  Receipt,
+  RefreshCcw,
+  ShieldAlert,
+  Trash2,
+  User,
+  Wallet,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
+
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { useRole } from "@/context/RoleContext";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import { getApiErrorMessage } from "@/lib/getApiErrorMessage";
+import { cn } from "@/lib/utils";
 import type { Role } from "@/lib/roles";
+import { employeeKeys, employeeService } from "@/services/employeeService";
+import type { EmployeeDetail as EmployeeDetailType } from "@/types/employee";
+import { useRole } from "@/context/RoleContext";
 
 const SENSITIVE_ROLES: Role[] = ["director", "manager", "finance"];
 const EDIT_ROLES: Role[] = ["hrStaff", "hrManager"];
 const DELETE_ROLES: Role[] = ["hrStaff", "hrManager"];
 
-const EMPLOYEE = {
-  id: "NV001",
-  name: "Nguyễn Văn An",
-  position: "Kỹ sư phần mềm cấp cao",
-  department: "Phòng Kỹ thuật",
-  status: "active" as const,
-  email: "an.nguyen@company.vn",
-  phone: "0901 234 567",
-  gender: "Nam",
-  dob: "12/04/1990",
-  idNumber: "0123 4567 8910",
-  address: "123 Lê Lợi, Quận 1, TP. Hồ Chí Minh",
-  maritalStatus: "Đã kết hôn",
-  nationality: "Việt Nam",
-  // work
-  joinDate: "01/03/2018",
-  contractType: "Hợp đồng không xác định thời hạn",
-  manager: "Hoàng Minh Đức",
-  workLocation: "Văn phòng HCM - Tầng 12",
-  workEmail: "an.nguyen@company.vn",
-  level: "Senior",
-  // finance (sensitive)
-  salary: 25000000,
-  allowance: 2000000,
-  bonus: 5000000,
-  taxCode: "8123456789",
-  bankName: "Vietcombank",
-  bankAccount: "0071 0001 2345 67",
-  insuranceCode: "DN1234567890",
+const POSITION_LABELS: Record<number, string> = {
+  1: "Nhân viên",
+  2: "Trưởng phòng",
+  3: "Giám đốc",
 };
 
-const formatVND = (n: number) =>
-  new Intl.NumberFormat("vi-VN", {
+const STATUS_META: Record<string, { label: string; className: string }> = {
+  ACTIVE: {
+    label: "Đang làm việc",
+    className:
+      "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-300",
+  },
+  ON_LEAVE: {
+    label: "Nghỉ phép",
+    className:
+      "border-amber-500/20 bg-amber-500/10 text-amber-700 hover:bg-amber-500/10 dark:text-amber-300",
+  },
+  TERMINATED: {
+    label: "Đã nghỉ việc",
+    className: "border-destructive/20 bg-destructive/10 text-destructive",
+  },
+  INACTIVE: {
+    label: "Không hoạt động",
+    className: "border-muted bg-muted text-muted-foreground",
+  },
+};
+
+type IconComponent = ComponentType<{ className?: string }>;
+
+function getPositionLabel(positionId?: number | null) {
+  if (!positionId) return "—";
+  return POSITION_LABELS[positionId] ?? `Position #${positionId}`;
+}
+
+function getStatusKey(employee: EmployeeDetailType) {
+  if (!employee.IsActive) return "INACTIVE";
+  return employee.EmploymentStatus || "ACTIVE";
+}
+
+function getStatusMeta(employee: EmployeeDetailType) {
+  const statusKey = getStatusKey(employee);
+
+  return (
+    STATUS_META[statusKey] ?? {
+      label: statusKey,
+      className: "border-border bg-muted text-muted-foreground",
+    }
+  );
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return "—";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return new Intl.DateTimeFormat("vi-VN").format(date);
+}
+
+function formatVND(value?: string | number | null) {
+  if (value === undefined || value === null || value === "") return "—";
+
+  const numericValue = Number(value);
+  if (Number.isNaN(numericValue)) return String(value);
+
+  return new Intl.NumberFormat("vi-VN", {
     style: "currency",
     currency: "VND",
     maximumFractionDigits: 0,
-  }).format(n);
+  }).format(numericValue);
+}
+
+function formatDecimal(value?: string | number | null) {
+  if (value === undefined || value === null || value === "") return "—";
+
+  const numericValue = Number(value);
+  if (Number.isNaN(numericValue)) return String(value);
+
+  return new Intl.NumberFormat("vi-VN", {
+    maximumFractionDigits: 2,
+  }).format(numericValue);
+}
+
+function getEmployeeName(employee: EmployeeDetailType) {
+  return employee.FullName || "Thông tin bị ẩn";
+}
+
+function getInitials(employee: EmployeeDetailType) {
+  const name = employee.FullName?.trim();
+
+  if (!name) {
+    return employee.EmployeeID.slice(-2).toUpperCase();
+  }
+
+  return name
+    .split(" ")
+    .slice(-2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
+}
 
 function Field({
   icon: Icon,
@@ -73,9 +146,9 @@ function Field({
   value,
   mono,
 }: {
-  icon?: React.ComponentType<{ className?: string }>;
+  icon?: IconComponent;
   label: string;
-  value: React.ReactNode;
+  value: ReactNode;
   mono?: boolean;
 }) {
   return (
@@ -84,7 +157,12 @@ function Field({
         {Icon && <Icon className="h-3.5 w-3.5" />}
         {label}
       </div>
-      <div className={`text-sm text-foreground ${mono ? "font-mono" : "font-medium"}`}>
+      <div
+        className={cn(
+          "text-sm text-foreground",
+          mono ? "font-mono" : "font-medium",
+        )}
+      >
         {value}
       </div>
     </div>
@@ -100,106 +178,242 @@ function SectionCard({
 }: {
   title: string;
   description?: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: IconComponent;
   sensitive?: boolean;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <Card
-      className={
-        sensitive
-          ? "border-amber-300/60 bg-amber-50/40 shadow-sm dark:bg-amber-950/10"
-          : "shadow-sm"
-      }
+      className={cn(
+        "shadow-sm",
+        sensitive && "border-amber-500/30 bg-amber-500/5 dark:bg-amber-500/10",
+      )}
     >
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
             <div
-              className={`flex h-9 w-9 items-center justify-center rounded-lg ${
-                sensitive ? "bg-amber-100 text-amber-700" : "bg-primary/10 text-primary"
-              }`}
+              className={cn(
+                "flex h-9 w-9 items-center justify-center rounded-lg",
+                sensitive
+                  ? "bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                  : "bg-primary/10 text-primary",
+              )}
             >
               <Icon className="h-4.5 w-4.5" />
             </div>
+
             <div>
               <CardTitle className="text-base">{title}</CardTitle>
               {description && (
-                <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {description}
+                </p>
               )}
             </div>
           </div>
+
           {sensitive && (
             <Badge
               variant="outline"
-              className="gap-1 border-amber-300 bg-amber-100 text-amber-800 hover:bg-amber-100"
+              className="gap-1 border-amber-500/30 bg-amber-500/10 text-amber-800 hover:bg-amber-500/10 dark:text-amber-300"
             >
-              <ShieldAlert className="h-3 w-3" /> Dữ liệu nhạy cảm
+              <ShieldAlert className="h-3 w-3" />
+              Dữ liệu nhạy cảm
             </Badge>
           )}
         </div>
       </CardHeader>
+
       <Separator />
+
       <CardContent className="pt-5">{children}</CardContent>
     </Card>
   );
 }
 
+function EmployeeDetailLoading() {
+  return (
+    <div className="space-y-6 p-6">
+      <Card className="p-8 text-center shadow-sm">
+        <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Đang tải chi tiết nhân viên...
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 export default function EmployeeDetail() {
   const navigate = useNavigate();
-  const { id } = useParams();
+  const { id } = useParams<{ id: string }>();
   const { role } = useRole();
 
   const canSeeSensitive = SENSITIVE_ROLES.includes(role);
   const canEdit = EDIT_ROLES.includes(role);
   const canDelete = DELETE_ROLES.includes(role);
 
-  const emp = { ...EMPLOYEE, id: id ?? EMPLOYEE.id };
-  const initials = emp.name.split(" ").slice(-2).map((s) => s[0]).join("");
+  const employeeQuery = useQuery({
+    queryKey: employeeKeys.detail(id ?? ""),
+    queryFn: () => employeeService.getById(id as string),
+    enabled: Boolean(id),
+  });
+
+  if (!id) {
+    return (
+      <div className="space-y-6 p-6">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => navigate(-1)}
+          className="-ml-2 w-fit"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Quay lại
+        </Button>
+
+        <Card className="p-8 text-center text-sm text-muted-foreground shadow-sm">
+          Không tìm thấy mã nhân viên trên URL.
+        </Card>
+      </div>
+    );
+  }
+
+  if (employeeQuery.isLoading) {
+    return <EmployeeDetailLoading />;
+  }
+
+  if (employeeQuery.isError) {
+    return (
+      <div className="space-y-6 p-6">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => navigate(-1)}
+          className="-ml-2 w-fit"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Quay lại
+        </Button>
+
+        <Card className="p-8 text-center shadow-sm">
+          <div className="mx-auto flex max-w-md flex-col items-center gap-3 text-sm text-muted-foreground">
+            <p>
+              {getApiErrorMessage(
+                employeeQuery.error,
+                "Không thể tải chi tiết nhân viên.",
+              )}
+            </p>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => employeeQuery.refetch()}
+            >
+              <RefreshCcw className="h-4 w-4" />
+              Tải lại
+            </Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  const employee = employeeQuery.data;
+
+  if (!employee) {
+    return (
+      <div className="space-y-6 p-6">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => navigate(-1)}
+          className="-ml-2 w-fit"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Quay lại
+        </Button>
+
+        <Card className="p-8 text-center text-sm text-muted-foreground shadow-sm">
+          Không tìm thấy nhân viên.
+        </Card>
+      </div>
+    );
+  }
+
+  const statusMeta = getStatusMeta(employee);
 
   return (
     <div className="space-y-6 p-6">
-      {/* Top bar */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="-ml-2 w-fit">
-          <ArrowLeft className="h-4 w-4" /> Quay lại
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => navigate(-1)}
+          className="-ml-2 w-fit"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Quay lại
         </Button>
+
         <div className="flex flex-wrap gap-2">
           {canEdit && (
             <Button size="sm">
-              <Pencil className="h-4 w-4" /> Chỉnh sửa
+              <Pencil className="h-4 w-4" />
+              Chỉnh sửa
             </Button>
           )}
+
           {canDelete && (
-            <Button size="sm" variant="outline" className="border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive">
-              <Trash2 className="h-4 w-4" /> Tạo yêu cầu xóa
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            >
+              <Trash2 className="h-4 w-4" />
+              Tạo yêu cầu xóa
             </Button>
           )}
         </div>
       </div>
 
-      {/* Profile header */}
       <Card className="overflow-hidden shadow-sm">
         <div className="h-24 bg-gradient-to-r from-primary/20 via-primary/10 to-transparent" />
+
         <CardContent className="pt-0">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
               <Avatar className="-mt-10 h-20 w-20 border-4 border-background shadow-md">
                 <AvatarFallback className="bg-primary text-xl font-semibold text-primary-foreground">
-                  {initials}
+                  {getInitials(employee)}
                 </AvatarFallback>
               </Avatar>
+
               <div className="space-y-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="text-2xl font-semibold tracking-tight">{emp.name}</h1>
-                  <Badge variant="outline" className="border-emerald-200 bg-emerald-100 text-emerald-700 hover:bg-emerald-100">
-                    <BadgeCheck className="h-3 w-3" /> Đang làm việc
+                  <h1 className="text-2xl font-semibold tracking-tight">
+                    {getEmployeeName(employee)}
+                  </h1>
+
+                  <Badge
+                    variant="outline"
+                    className={cn("gap-1", statusMeta.className)}
+                  >
+                    <BadgeCheck className="h-3 w-3" />
+                    {statusMeta.label}
                   </Badge>
                 </div>
+
                 <p className="text-sm text-muted-foreground">
-                  {emp.position} · {emp.department}
+                  {getPositionLabel(employee.PositionID)} ·{" "}
+                  {employee.DepartmentName ?? "—"}
                 </p>
-                <p className="text-xs text-muted-foreground">Mã NV: <span className="font-mono">{emp.id}</span></p>
+
+                <p className="text-xs text-muted-foreground">
+                  Mã NV:{" "}
+                  <span className="font-mono">{employee.EmployeeID}</span>
+                </p>
               </div>
             </div>
           </div>
@@ -207,60 +421,129 @@ export default function EmployeeDetail() {
       </Card>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        {/* Personal info */}
-        <SectionCard title="Thông tin cá nhân" description="Thông tin liên hệ và nhân khẩu" icon={User}>
+        <SectionCard
+          title="Thông tin cá nhân"
+          description="Thông tin cơ bản backend hiện trả về"
+          icon={User}
+        >
           <div className="grid gap-5 sm:grid-cols-2">
-            <Field icon={User} label="Họ và tên" value={emp.name} />
-            <Field icon={User} label="Giới tính" value={emp.gender} />
-            <Field icon={Calendar} label="Ngày sinh" value={emp.dob} />
-            <Field label="Số CCCD" value={emp.idNumber} mono />
-            <Field icon={Mail} label="Email cá nhân" value={emp.email} />
-            <Field icon={Phone} label="Số điện thoại" value={emp.phone} />
-            <Field label="Tình trạng hôn nhân" value={emp.maritalStatus} />
-            <Field label="Quốc tịch" value={emp.nationality} />
+            <Field
+              icon={User}
+              label="Họ và tên"
+              value={getEmployeeName(employee)}
+            />
+            <Field
+              icon={User}
+              label="Giới tính"
+              value={employee.Gender ?? "—"}
+            />
+            <Field
+              icon={Calendar}
+              label="Ngày sinh"
+              value={formatDate(employee.DateOfBirth)}
+            />
+            <Field
+              icon={Phone}
+              label="Số điện thoại"
+              value={employee.PhoneNumber ?? "—"}
+            />
+            <Field
+              icon={Receipt}
+              label="Mã số thuế"
+              value={employee.TaxID ?? "—"}
+              mono
+            />
+            <Field icon={Mail} label="Email" value="—" />
+
             <div className="sm:col-span-2">
-              <Field icon={MapPin} label="Địa chỉ thường trú" value={emp.address} />
+              <Field icon={MapPin} label="Địa chỉ thường trú" value="—" />
             </div>
           </div>
         </SectionCard>
 
-        {/* Work info */}
-        <SectionCard title="Thông tin công việc" description="Hợp đồng, vị trí và đơn vị công tác" icon={Briefcase}>
+        <SectionCard
+          title="Thông tin công việc"
+          description="Đơn vị công tác và trạng thái làm việc"
+          icon={Briefcase}
+        >
           <div className="grid gap-5 sm:grid-cols-2">
-            <Field icon={Building2} label="Phòng ban" value={emp.department} />
-            <Field icon={Briefcase} label="Chức vụ" value={emp.position} />
-            <Field label="Cấp bậc" value={emp.level} />
-            <Field label="Quản lý trực tiếp" value={emp.manager} />
-            <Field icon={Calendar} label="Ngày vào làm" value={emp.joinDate} />
-            <Field label="Loại hợp đồng" value={emp.contractType} />
-            <Field icon={Mail} label="Email công việc" value={emp.workEmail} />
-            <Field icon={MapPin} label="Nơi làm việc" value={emp.workLocation} />
+            <Field
+              icon={Building2}
+              label="Mã phòng ban"
+              value={employee.DepartmentID ?? "—"}
+              mono
+            />
+            <Field
+              icon={Building2}
+              label="Phòng ban"
+              value={employee.DepartmentName ?? "—"}
+            />
+            <Field
+              icon={Briefcase}
+              label="Chức vụ"
+              value={getPositionLabel(employee.PositionID)}
+            />
+            <Field label="Mã chức vụ" value={employee.PositionID ?? "—"} mono />
+            <Field
+              icon={Calendar}
+              label="Ngày tạo hồ sơ"
+              value={formatDate(employee.CreatedAt)}
+            />
+            <Field label="Trạng thái" value={statusMeta.label} />
+            <Field
+              label="Tài khoản hoạt động"
+              value={employee.IsActive ? "Có" : "Không"}
+            />
+            <Field label="Quản lý trực tiếp" value="—" />
           </div>
         </SectionCard>
 
-        {/* Financial - sensitive */}
         {canSeeSensitive ? (
           <SectionCard
             title="Thông tin tài chính"
-            description="Lương, thuế và tài khoản ngân hàng"
+            description="Dữ liệu hiển thị theo quyền RBAC từ backend"
             icon={Wallet}
             sensitive
           >
             <div className="grid gap-5 sm:grid-cols-2">
-              <Field icon={Wallet} label="Lương cơ bản" value={formatVND(emp.salary)} />
-              <Field icon={Wallet} label="Phụ cấp" value={formatVND(emp.allowance)} />
-              <Field icon={Wallet} label="Thưởng" value={formatVND(emp.bonus)} />
-              <Field icon={Receipt} label="Mã số thuế" value={emp.taxCode} mono />
-              <Field icon={Landmark} label="Ngân hàng" value={emp.bankName} />
-              <Field icon={CreditCard} label="Số tài khoản" value={emp.bankAccount} mono />
-              <div className="sm:col-span-2">
-                <Field icon={ShieldAlert} label="Mã số BHXH" value={emp.insuranceCode} mono />
-              </div>
+              <Field
+                icon={Wallet}
+                label="Lương cơ bản"
+                value={formatVND(employee.BaseSalary)}
+              />
+              <Field
+                icon={Wallet}
+                label="Lương thực nhận"
+                value={formatVND(employee.FinalSalary)}
+              />
+              <Field
+                icon={Wallet}
+                label="Phụ cấp"
+                value={formatVND(employee.Allowance)}
+              />
+              <Field
+                label="Hệ số lương"
+                value={formatDecimal(employee.SalaryCoefficient)}
+              />
+              <Field
+                label="Hệ số chức vụ"
+                value={formatDecimal(employee.PositionCoefficient)}
+              />
+              <Field
+                icon={Receipt}
+                label="Mã số thuế"
+                value={employee.TaxID ?? "—"}
+                mono
+              />
+              <Field icon={Landmark} label="Ngân hàng" value="—" />
+              <Field icon={CreditCard} label="Số tài khoản" value="—" mono />
             </div>
-            <div className="mt-5 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-100/60 p-3 text-xs text-amber-800">
+
+            <div className="mt-5 flex items-start gap-2 rounded-md border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-300">
               <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
               <span>
-                Dữ liệu trong mục này được phân loại nhạy cảm. Mọi truy cập đều được ghi vào nhật ký kiểm tra (audit log).
+                Backend đang áp dụng RBAC theo role. Một số field tài chính có
+                thể không xuất hiện nếu API không trả về cho quyền hiện tại.
               </span>
             </div>
           </SectionCard>
@@ -270,9 +553,14 @@ export default function EmployeeDetail() {
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
                 <ShieldAlert className="h-5 w-5" />
               </div>
-              <p className="text-sm font-medium">Thông tin tài chính bị hạn chế</p>
+
+              <p className="text-sm font-medium">
+                Thông tin tài chính bị hạn chế
+              </p>
+
               <p className="max-w-xs text-xs text-muted-foreground">
-                Bạn không có quyền xem dữ liệu lương, thuế và tài khoản ngân hàng của nhân viên này.
+                Bạn không có quyền xem dữ liệu lương, thuế và tài khoản ngân
+                hàng của nhân viên này.
               </p>
             </CardContent>
           </Card>
