@@ -29,6 +29,7 @@ export type LoginResponseData = {
 
 export type RefreshResponseData = {
   accessToken: string;
+  user?: AuthUser;
 };
 
 export type ApiResponse<T> = {
