@@ -58,6 +58,11 @@ type SalaryFormState = {
   formulaVersion: string;
 };
 
+type CreateEmployeeApprovalPayload = CreateEmployeePayload & {
+  employeeId?: string | null;
+  EmployeeID?: string | null;
+};
+
 const INITIAL_SALARY_FORM: SalaryFormState = {
   baseSalary: "",
   salaryCoefficient: "1",
@@ -65,6 +70,8 @@ const INITIAL_SALARY_FORM: SalaryFormState = {
   allowance: "0",
   formulaVersion: "v1",
 };
+
+const AUTO_GENERATED_EMPLOYEE_ID = "Tự động tạo sau phê duyệt";
 
 const PAGE_SIZE_OPTIONS = [5, 10, 20] as const;
 
@@ -164,7 +171,7 @@ function getEmployeeDisplayName(request: PendingApproval) {
   const payload = parseRequestPayload(request);
 
   if (request.RequestType === "CREATE_EMPLOYEE") {
-    return (payload as CreateEmployeePayload).fullName || "Nhân viên mới";
+    return (payload as CreateEmployeeApprovalPayload).fullName || "Nhân viên mới";
   }
 
   if (request.RequestType === "UPDATE_EMPLOYEE") {
@@ -178,7 +185,7 @@ function getRequestDescription(request: PendingApproval) {
   const payload = parseRequestPayload(request);
 
   if (request.RequestType === "CREATE_EMPLOYEE") {
-    const createPayload = payload as CreateEmployeePayload;
+    const createPayload = payload as CreateEmployeeApprovalPayload;
 
     return [
       createPayload.fullName,
@@ -289,10 +296,13 @@ function PayloadDetails({ request }: { request: PendingApproval }) {
   const payload = parseRequestPayload(request);
 
   if (request.RequestType === "CREATE_EMPLOYEE") {
-    const data = payload as CreateEmployeePayload;
+    const data = payload as CreateEmployeeApprovalPayload;
+    const employeeId =
+      data.employeeId || data.EmployeeID || AUTO_GENERATED_EMPLOYEE_ID;
 
     return (
       <div className="grid gap-3 md:grid-cols-2">
+        <DetailRow label="Mã nhân viên" value={employeeId} />
         <DetailRow label="Họ tên" value={data.fullName} />
         <DetailRow label="Giới tính" value={data.gender} />
         <DetailRow label="Ngày sinh" value={data.dateOfBirth} />

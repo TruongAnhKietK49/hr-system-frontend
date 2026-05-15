@@ -5,9 +5,8 @@ export type DepartmentRecord = {
 };
 
 export type CreateDepartmentPayload = {
-  departmentId: string;
   departmentName: string;
-  managerId?: string | null;
+  managerEmployeeId?: string | null;
 };
 
 export type UpdateDepartmentPayload = {
