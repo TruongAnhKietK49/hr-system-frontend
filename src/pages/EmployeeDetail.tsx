@@ -357,25 +357,6 @@ export default function EmployeeDetail() {
           Quay lại
         </Button>
 
-        <div className="flex flex-wrap gap-2">
-          {canEdit && (
-            <Button size="sm">
-              <Pencil className="h-4 w-4" />
-              Chỉnh sửa
-            </Button>
-          )}
-
-          {canDelete && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
-            >
-              <Trash2 className="h-4 w-4" />
-              Tạo yêu cầu xóa
-            </Button>
-          )}
-        </div>
       </div>
 
       <Card className="overflow-hidden shadow-sm">
