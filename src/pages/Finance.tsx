@@ -40,6 +40,8 @@ import {
 import { useAuth } from "@/context/AuthContext";
 import { exportWorkbookToExcel } from "@/lib/exportExcel";
 import type { ExcelRow } from "@/lib/exportExcel";
+import { PaginationControls } from "@/components/common/PaginationControls";
+import { usePagination } from "@/hooks/usePagination";
 import { getApiErrorMessage } from "@/lib/getApiErrorMessage";
 import { mapBackendRoleToFrontendRole } from "@/lib/roles";
 import { financeKeys, financeService } from "@/services/financeService";
@@ -117,6 +119,7 @@ function canSeeFullFinanceProfile({
   return record.DepartmentID === currentUserDepartmentId;
 }
 
+
 function buildFinanceReportRows(
   rows: Array<{
     record: FinancePayrollRecord;
@@ -134,18 +137,14 @@ function buildFinanceReportRows(
       : "",
     "Lương cơ bản": canSeeFullProfile ? toNumber(record.BaseSalary) : "",
     "Hệ số lương": canSeeFullProfile ? (record.SalaryCoefficient ?? "") : "",
-    "Hệ số chức vụ": canSeeFullProfile
-      ? (record.PositionCoefficient ?? "")
-      : "",
+    "Hệ số chức vụ": canSeeFullProfile ? (record.PositionCoefficient ?? "") : "",
     "Phụ cấp": toNumber(record.Allowance),
     "Lương thực nhận": toNumber(record.FinalSalary),
     "Mã số thuế": record.TaxID ?? "",
     "Phiên bản công thức": record.FormulaVersion ?? "",
     "Cập nhật lương": formatDate(record.SalaryUpdatedAt),
     "Tính lương lúc": formatDate(record.SalaryCalculatedAt),
-    "Phạm vi": canSeeFullProfile
-      ? "Cùng phòng / Toàn quyền"
-      : "Giới hạn theo quyền",
+    "Phạm vi": canSeeFullProfile ? "Cùng phòng / Toàn quyền" : "Giới hạn theo quyền",
   }));
 }
 
@@ -268,6 +267,18 @@ export default function Finance() {
     });
   }, [query, rowsWithScope]);
 
+  const {
+    page: financePage,
+    pageSize: financePageSize,
+    paginatedItems: paginatedRows,
+    setPage: setFinancePage,
+    setPageSize: setFinancePageSize,
+  } = usePagination({
+    items: filteredRows,
+    initialPageSize: 10,
+    resetDeps: [query],
+  });
+
   const totalFinalSalary = useMemo(() => {
     return rows.reduce((total, row) => total + toNumber(row.FinalSalary), 0);
   }, [rows]);
@@ -281,6 +292,7 @@ export default function Finance() {
   const isLoading = payrollQuery.isLoading;
   const isError = payrollQuery.isError;
   const isEmpty = !isLoading && !isError && filteredRows.length === 0;
+
 
   const exportFinanceReport = () => {
     if (filteredRows.length === 0) {
@@ -497,7 +509,7 @@ export default function Finance() {
 
                 {!isLoading &&
                   !isError &&
-                  filteredRows.map(({ record, canSeeFullProfile }) => (
+                  paginatedRows.map(({ record, canSeeFullProfile }) => (
                     <TableRow key={record.EmployeeID}>
                       <TableCell className="whitespace-nowrap font-mono font-medium">
                         {record.EmployeeID}
@@ -557,7 +569,6 @@ export default function Finance() {
                           </Badge>
                         )}
                       </TableCell>
-
                       <TableCell className="text-right">
                         <Button
                           size="sm"
@@ -575,9 +586,18 @@ export default function Finance() {
               </TableBody>
             </Table>
           </div>
+
+          {!isLoading && !isError && filteredRows.length > 0 && (
+            <PaginationControls
+              page={financePage}
+              pageSize={financePageSize}
+              totalItems={filteredRows.length}
+              onPageChange={setFinancePage}
+              onPageSizeChange={setFinancePageSize}
+            />
+          )}
         </CardContent>
       </Card>
-
       <Dialog
         open={Boolean(selectedEmployeeId)}
         onOpenChange={(open) => {

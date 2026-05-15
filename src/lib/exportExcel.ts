@@ -26,7 +26,7 @@ function getTimestamp() {
 function sanitizeSheetName(sheetName: string) {
   return (
     sheetName
-      .replace(/[\\/?*\[\]:]/g, " ")
+      .replace(/[\\/?*\\[\]:]/g, " ")
       .slice(0, 31)
       .trim() || "Sheet"
   );
