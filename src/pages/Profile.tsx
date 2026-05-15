@@ -11,6 +11,7 @@ import {
   Save,
   ShieldAlert,
   UserCircle,
+  KeyRound,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -33,6 +34,8 @@ import { useRole } from "@/context/RoleContext";
 import { useAuth } from "@/context/AuthContext";
 import { getApiErrorMessage } from "@/lib/getApiErrorMessage";
 import { ROLE_LABELS } from "@/lib/roles";
+
+import { authService } from "@/services/authService";
 import { employeeKeys, employeeService } from "@/services/employeeService";
 import type {
   EmployeeDetail,
@@ -57,6 +60,18 @@ const DEFAULT_FORM_STATE: ProfileFormState = {
   gender: "",
   dateOfBirth: "",
   phoneNumber: "",
+};
+
+type PasswordFormState = {
+  currentPassword: string;
+  newPassword: string;
+  confirmPassword: string;
+};
+
+const DEFAULT_PASSWORD_FORM_STATE: PasswordFormState = {
+  currentPassword: "",
+  newPassword: "",
+  confirmPassword: "",
 };
 
 function getPositionLabel(positionId?: number | null) {
@@ -177,6 +192,10 @@ export default function Profile() {
   const [isEditing, setIsEditing] = useState(false);
   const [form, setForm] = useState<ProfileFormState>(DEFAULT_FORM_STATE);
 
+  const [passwordForm, setPasswordForm] = useState<PasswordFormState>(
+    DEFAULT_PASSWORD_FORM_STATE,
+  );
+
   const profileQuery = useQuery({
     queryKey: employeeKeys.detail(employeeId),
     queryFn: () => employeeService.getById(employeeId),
@@ -190,6 +209,16 @@ export default function Profile() {
       setForm(toFormState(profile));
     }
   }, [profile]);
+
+  const updatePasswordField = (
+    field: keyof PasswordFormState,
+    value: string,
+  ) => {
+    setPasswordForm((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  };
 
   const updateProfileMutation = useMutation({
     mutationFn: ({
@@ -227,6 +256,53 @@ export default function Profile() {
       );
     },
   });
+
+  const changePasswordMutation = useMutation({
+    mutationFn: authService.changePassword,
+
+    onSuccess: () => {
+      toast.success("Đổi mật khẩu thành công", {
+        description: "Bạn có thể tiếp tục sử dụng tài khoản với mật khẩu mới.",
+      });
+
+      setPasswordForm(DEFAULT_PASSWORD_FORM_STATE);
+    },
+
+    onError: (error) => {
+      toast.error(getApiErrorMessage(error, "Không thể đổi mật khẩu."));
+    },
+  });
+
+  const submitChangePassword = () => {
+    const currentPassword = passwordForm.currentPassword.trim();
+    const newPassword = passwordForm.newPassword.trim();
+    const confirmPassword = passwordForm.confirmPassword.trim();
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      toast.error("Vui lòng nhập đầy đủ thông tin mật khẩu.");
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      toast.error("Mật khẩu mới phải có ít nhất 6 ký tự.");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      toast.error("Xác nhận mật khẩu mới không khớp.");
+      return;
+    }
+
+    if (currentPassword === newPassword) {
+      toast.error("Mật khẩu mới phải khác mật khẩu hiện tại.");
+      return;
+    }
+
+    changePasswordMutation.mutate({
+      currentPassword,
+      newPassword,
+    });
+  };
 
   const displayName = profile?.FullName ?? username;
   const initials = useMemo(
@@ -326,6 +402,7 @@ export default function Profile() {
   }
 
   const isSubmitting = updateProfileMutation.isPending;
+  const isChangingPassword = changePasswordMutation.isPending;
 
   return (
     <div className="min-w-0 space-y-6 p-6">
@@ -507,6 +584,86 @@ export default function Profile() {
               </div>
             </>
           )}
+        </CardContent>
+      </Card>
+      <Card className="shadow-sm">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <KeyRound className="h-4 w-4" />
+            Đổi mật khẩu
+          </CardTitle>
+        </CardHeader>
+
+        <Separator />
+
+        <CardContent className="grid gap-4 p-6 md:grid-cols-3">
+          <div className="space-y-2">
+            <Label htmlFor="currentPassword">Mật khẩu hiện tại</Label>
+            <Input
+              id="currentPassword"
+              type="password"
+              autoComplete="current-password"
+              value={passwordForm.currentPassword}
+              onChange={(event) =>
+                updatePasswordField("currentPassword", event.target.value)
+              }
+              disabled={isChangingPassword}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="newPassword">Mật khẩu mới</Label>
+            <Input
+              id="newPassword"
+              type="password"
+              autoComplete="new-password"
+              value={passwordForm.newPassword}
+              onChange={(event) =>
+                updatePasswordField("newPassword", event.target.value)
+              }
+              disabled={isChangingPassword}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="confirmPassword">Xác nhận mật khẩu mới</Label>
+            <Input
+              id="confirmPassword"
+              type="password"
+              autoComplete="new-password"
+              value={passwordForm.confirmPassword}
+              onChange={(event) =>
+                updatePasswordField("confirmPassword", event.target.value)
+              }
+              disabled={isChangingPassword}
+            />
+          </div>
+
+          <div className="rounded-lg border border-border bg-muted/40 p-4 text-sm text-muted-foreground md:col-span-2">
+            <div className="flex gap-2 font-medium text-foreground">
+              <ShieldAlert className="h-4 w-4" />
+              Lưu ý bảo mật
+            </div>
+            <p className="mt-1">
+              Mật khẩu mới nên khác mật khẩu hiện tại và có tối thiểu 6 ký tự.
+              Không chia sẻ mật khẩu cho người khác.
+            </p>
+          </div>
+
+          <div className="flex items-end justify-end">
+            <Button
+              onClick={submitChangePassword}
+              disabled={isChangingPassword}
+              className="w-full md:w-auto"
+            >
+              {isChangingPassword ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <KeyRound className="h-4 w-4" />
+              )}
+              Đổi mật khẩu
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </div>
