@@ -23,6 +23,7 @@ import { getApiErrorMessage } from "@/lib/getApiErrorMessage";
 import { cn } from "@/lib/utils";
 import { useRole } from "@/context/RoleContext";
 import type { Role } from "@/lib/roles";
+import { exportRowsToExcel } from "@/lib/exportExcel";
 
 import {
   AlertDialog,
@@ -268,6 +269,41 @@ function buildUpdatePayload(
   };
 }
 
+function buildEmployeeExportRows({
+  employees,
+  canSeeSensitive,
+}: {
+  employees: EmployeeListItem[];
+  canSeeSensitive: boolean;
+}) {
+  return employees.map((employee, index) => {
+    const statusMeta = getStatusMeta(employee);
+
+    const baseRow = {
+      STT: index + 1,
+      "Mã nhân viên": employee.EmployeeID,
+      "Họ tên": getEmployeeName(employee),
+      "Giới tính": employee.Gender ?? "",
+      "Ngày sinh": formatDate(employee.DateOfBirth),
+      "Số điện thoại": employee.PhoneNumber ?? "",
+      "Mã phòng ban": employee.DepartmentID ?? "",
+      "Phòng ban": employee.DepartmentName ?? "",
+      "Chức vụ": getPositionLabel(employee.PositionID),
+      "Trạng thái": statusMeta.label,
+      "Ngày tạo": formatDate(employee.CreatedAt),
+    };
+
+    if (!canSeeSensitive) return baseRow;
+
+    return {
+      ...baseRow,
+      "Lương thực nhận": Number(employee.FinalSalary ?? 0),
+      "Phụ cấp": Number(employee.Allowance ?? 0),
+      "Mã số thuế": employee.TaxID ?? "",
+    };
+  });
+}
+
 export default function Employees() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -483,6 +519,26 @@ export default function Employees() {
     createEmployeeRequestMutation.mutate(payload);
   };
 
+  const exportEmployees = () => {
+    if (filteredEmployees.length === 0) {
+      toast.info("Không có dữ liệu nhân viên để xuất Excel.");
+      return;
+    }
+
+    exportRowsToExcel({
+      rows: buildEmployeeExportRows({
+        employees: filteredEmployees,
+        canSeeSensitive,
+      }),
+      fileName: "danh-sach-nhan-vien",
+      sheetName: "Danh sách nhân viên",
+    });
+
+    toast.success("Đã xuất Excel danh sách nhân viên", {
+      description: `Đã xuất ${filteredEmployees.length} nhân viên theo bộ lọc hiện tại.`,
+    });
+  };
+
   const isFiltering =
     Boolean(query.trim()) || department !== "all" || status !== "all";
   const totalLabel = employeesQuery.isLoading
@@ -512,7 +568,10 @@ export default function Employees() {
           <Button
             variant="outline"
             size="sm"
-            disabled={employeesQuery.isLoading}
+            disabled={
+              employeesQuery.isLoading || filteredEmployees.length === 0
+            }
+            onClick={exportEmployees}
           >
             <Download className="h-4 w-4" />
             Xuất Excel
