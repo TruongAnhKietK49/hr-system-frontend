@@ -37,6 +37,8 @@ import {
 import { useRole } from "@/context/RoleContext";
 import { getApiErrorMessage } from "@/lib/getApiErrorMessage";
 import { salaryKeys, salaryService } from "@/services/salaryService";
+import { PaginationControls } from "@/components/common/PaginationControls";
+import { usePagination } from "@/hooks/usePagination";
 import type { SalaryRecord, UpdateSalaryPayload } from "@/types/salary";
 
 const POSITION_LABELS: Record<number, string> = {
@@ -245,6 +247,18 @@ export default function Salary() {
         .some((value) => String(value).toLowerCase().includes(normalizedQuery));
     });
   }, [query, rows]);
+
+  const {
+    page: salaryPage,
+    pageSize: salaryPageSize,
+    paginatedItems: paginatedRows,
+    setPage: setSalaryPage,
+    setPageSize: setSalaryPageSize,
+  } = usePagination({
+    items: filteredRows,
+    initialPageSize: 10,
+    resetDeps: [query],
+  });
 
   const totalPayroll = useMemo(() => {
     return rows.reduce((total, row) => total + toNumber(row.FinalSalary), 0);
@@ -459,7 +473,7 @@ export default function Salary() {
 
                 {!isLoading &&
                   !isError &&
-                  filteredRows.map((row) => (
+                  paginatedRows.map((row) => (
                     <TableRow key={row.EmployeeID}>
                       <TableCell className="whitespace-nowrap font-mono font-medium">
                         {row.EmployeeID}
@@ -522,6 +536,15 @@ export default function Salary() {
               </TableBody>
             </Table>
           </div>
+          {!isLoading && !isError && filteredRows.length > 0 && (
+            <PaginationControls
+              page={salaryPage}
+              pageSize={salaryPageSize}
+              totalItems={filteredRows.length}
+              onPageChange={setSalaryPage}
+              onPageSizeChange={setSalaryPageSize}
+            />
+          )}
         </CardContent>
       </Card>
 

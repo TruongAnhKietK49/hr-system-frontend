@@ -81,6 +81,8 @@ import {
 import { useRole } from "@/context/RoleContext";
 import { getApiErrorMessage } from "@/lib/getApiErrorMessage";
 import { cn } from "@/lib/utils";
+import { PaginationControls } from "@/components/common/PaginationControls";
+import { usePagination } from "@/hooks/usePagination";
 import {
   departmentKeys,
   departmentService,
@@ -268,6 +270,18 @@ export default function Departments() {
         .some((value) => String(value).toLowerCase().includes(normalizedQuery));
     });
   }, [departments, employeesById, query]);
+
+  const {
+    page: departmentPage,
+    pageSize: departmentPageSize,
+    paginatedItems: paginatedDepartments,
+    setPage: setDepartmentPage,
+    setPageSize: setDepartmentPageSize,
+  } = usePagination({
+    items: filteredDepartments,
+    initialPageSize: 10,
+    resetDeps: [query],
+  });
 
   const totals = useMemo(() => {
     const totalEmployees = departments.reduce((total, department) => {
@@ -631,7 +645,7 @@ export default function Departments() {
 
               {!isLoading &&
                 !isError &&
-                filteredDepartments.map((department) => {
+                paginatedDepartments.map((department) => {
                   const employeeCount = getEmployeeCount(
                     department.DepartmentID,
                     employeeCountsByDepartment,
@@ -737,6 +751,16 @@ export default function Departments() {
             </TableBody>
           </Table>
         </div>
+
+        {!isLoading && !isError && filteredDepartments.length > 0 && (
+          <PaginationControls
+            page={departmentPage}
+            pageSize={departmentPageSize}
+            totalItems={filteredDepartments.length}
+            onPageChange={setDepartmentPage}
+            onPageSizeChange={setDepartmentPageSize}
+          />
+        )}
       </Card>
 
       <Dialog open={formOpen} onOpenChange={setFormOpen}>

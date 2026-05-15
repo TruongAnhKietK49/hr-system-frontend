@@ -24,6 +24,8 @@ import { cn } from "@/lib/utils";
 import { useRole } from "@/context/RoleContext";
 import type { Role } from "@/lib/roles";
 import { exportRowsToExcel } from "@/lib/exportExcel";
+import { PaginationControls } from "@/components/common/PaginationControls";
+import { usePagination } from "@/hooks/usePagination";
 
 import {
   AlertDialog,
@@ -414,6 +416,18 @@ export default function Employees() {
     });
   }, [department, employees, query, status]);
 
+  const {
+    page: employeePage,
+    pageSize: employeePageSize,
+    paginatedItems: paginatedEmployees,
+    setPage: setEmployeePage,
+    setPageSize: setEmployeePageSize,
+  } = usePagination({
+    items: filteredEmployees,
+    initialPageSize: 10,
+    resetDeps: [query, department, status],
+  });
+
   const resetFilters = () => {
     setQuery("");
     setDepartment("all");
@@ -568,9 +582,7 @@ export default function Employees() {
           <Button
             variant="outline"
             size="sm"
-            disabled={
-              employeesQuery.isLoading || filteredEmployees.length === 0
-            }
+            disabled={employeesQuery.isLoading || filteredEmployees.length === 0}
             onClick={exportEmployees}
           >
             <Download className="h-4 w-4" />
@@ -734,7 +746,7 @@ export default function Employees() {
 
               {!employeesQuery.isLoading &&
                 !employeesQuery.isError &&
-                filteredEmployees.map((employee) => {
+                paginatedEmployees.map((employee) => {
                   const statusMeta = getStatusMeta(employee);
 
                   return (
@@ -858,6 +870,16 @@ export default function Employees() {
             </TableBody>
           </Table>
         </div>
+
+        {!employeesQuery.isLoading && !employeesQuery.isError && filteredEmployees.length > 0 && (
+          <PaginationControls
+            page={employeePage}
+            pageSize={employeePageSize}
+            totalItems={filteredEmployees.length}
+            onPageChange={setEmployeePage}
+            onPageSizeChange={setEmployeePageSize}
+          />
+        )}
       </Card>
 
       <Dialog
