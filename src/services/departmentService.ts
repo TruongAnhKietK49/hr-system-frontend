@@ -37,9 +37,16 @@ export const departmentService = {
   },
 
   async create(payload: CreateDepartmentPayload) {
+    const body: CreateDepartmentPayload = {
+      departmentName: payload.departmentName,
+      ...(payload.managerEmployeeId
+        ? { managerEmployeeId: payload.managerEmployeeId }
+        : {}),
+    };
+
     const response = await API.post<ApiResponse<DepartmentRecord>>(
       "/departments",
-      payload,
+      body,
     );
 
     return response.data.data;
