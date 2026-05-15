@@ -164,6 +164,22 @@ function toUpdatePayload(
   };
 }
 
+function generateNextDepartmentId(departments: DepartmentRecord[]) {
+  const maxNumber = departments.reduce((max, department) => {
+    const departmentId = department.DepartmentID ?? "";
+
+    const match = departmentId.match(/^D(\d+)$/i);
+    if (!match) return max;
+
+    const numericPart = Number(match[1]);
+    if (Number.isNaN(numericPart)) return max;
+
+    return Math.max(max, numericPart);
+  }, 0);
+
+  return `D${String(maxNumber + 1).padStart(3, "0")}`;
+}
+
 export default function Departments() {
   const queryClient = useQueryClient();
   const { role } = useRole();
@@ -382,7 +398,7 @@ export default function Departments() {
     setManagerSearch("");
     setDebouncedManagerSearch("");
     form.reset({
-      departmentId: "",
+      departmentId: generateNextDepartmentId(departments),
       departmentName: "",
       managerId: NONE,
     });
@@ -790,15 +806,20 @@ export default function Departments() {
                     <FormLabel>Mã phòng ban *</FormLabel>
                     <FormControl>
                       <Input
-                        placeholder="VD: D001"
+                        placeholder="Tự động tạo mã phòng ban"
+                        readOnly
                         disabled={Boolean(editingDepartment) || isSubmitting}
+                        className="bg-muted font-mono"
                         maxLength={10}
                         {...field}
-                        onChange={(event) =>
-                          field.onChange(event.target.value.toUpperCase())
-                        }
                       />
                     </FormControl>
+                    {!editingDepartment && (
+                      <p className="text-xs text-muted-foreground">
+                        Mã phòng ban được tự động tạo dựa trên mã lớn nhất hiện
+                        có.
+                      </p>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}
