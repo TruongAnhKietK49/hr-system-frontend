@@ -1,5 +1,6 @@
 import { useMemo, useState, ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
   Banknote,
   Calendar,
@@ -37,6 +38,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useAuth } from "@/context/AuthContext";
+import { exportWorkbookToExcel } from "@/lib/exportExcel";
+import type { ExcelRow } from "@/lib/exportExcel";
 import { getApiErrorMessage } from "@/lib/getApiErrorMessage";
 import { mapBackendRoleToFrontendRole } from "@/lib/roles";
 import { financeKeys, financeService } from "@/services/financeService";
@@ -112,6 +115,60 @@ function canSeeFullFinanceProfile({
   if (!currentUserDepartmentId) return false;
 
   return record.DepartmentID === currentUserDepartmentId;
+}
+
+function buildFinanceReportRows(
+  rows: Array<{
+    record: FinancePayrollRecord;
+    canSeeFullProfile: boolean;
+  }>,
+) {
+  return rows.map(({ record, canSeeFullProfile }, index) => ({
+    STT: index + 1,
+    "Mã nhân viên": record.EmployeeID,
+    "Họ tên": canSeeFullProfile ? (record.FullName ?? "") : "Ẩn theo quyền",
+    "Mã phòng ban": canSeeFullProfile ? (record.DepartmentID ?? "") : "",
+    "Phòng ban": canSeeFullProfile ? (record.DepartmentName ?? "") : "",
+    "Chức vụ": canSeeFullProfile
+      ? (record.PositionName ?? getPositionLabel(record.PositionID))
+      : "",
+    "Lương cơ bản": canSeeFullProfile ? toNumber(record.BaseSalary) : "",
+    "Hệ số lương": canSeeFullProfile ? (record.SalaryCoefficient ?? "") : "",
+    "Hệ số chức vụ": canSeeFullProfile
+      ? (record.PositionCoefficient ?? "")
+      : "",
+    "Phụ cấp": toNumber(record.Allowance),
+    "Lương thực nhận": toNumber(record.FinalSalary),
+    "Mã số thuế": record.TaxID ?? "",
+    "Phiên bản công thức": record.FormulaVersion ?? "",
+    "Cập nhật lương": formatDate(record.SalaryUpdatedAt),
+    "Tính lương lúc": formatDate(record.SalaryCalculatedAt),
+    "Phạm vi": canSeeFullProfile
+      ? "Cùng phòng / Toàn quyền"
+      : "Giới hạn theo quyền",
+  }));
+}
+
+function buildFinanceSummaryRows({
+  totalFinalSalary,
+  totalRecords,
+  fullProfileCount,
+  limitedCount,
+  latestUpdatedAt,
+}: {
+  totalFinalSalary: number;
+  totalRecords: number;
+  fullProfileCount: number;
+  limitedCount: number;
+  latestUpdatedAt: string;
+}): ExcelRow[] {
+  return [
+    { "Chỉ tiêu": "Tổng lương hiển thị", "Giá trị": totalFinalSalary },
+    { "Chỉ tiêu": "Số bản ghi tài chính", "Giá trị": totalRecords },
+    { "Chỉ tiêu": "Hồ sơ đầy đủ", "Giá trị": fullProfileCount },
+    { "Chỉ tiêu": "Hồ sơ bị giới hạn", "Giá trị": limitedCount },
+    { "Chỉ tiêu": "Cập nhật gần nhất", "Giá trị": latestUpdatedAt },
+  ];
 }
 
 function DetailField({
@@ -225,6 +282,37 @@ export default function Finance() {
   const isError = payrollQuery.isError;
   const isEmpty = !isLoading && !isError && filteredRows.length === 0;
 
+  const exportFinanceReport = () => {
+    if (filteredRows.length === 0) {
+      toast.info("Không có dữ liệu tài chính để xuất báo cáo.");
+      return;
+    }
+
+    exportWorkbookToExcel({
+      fileName: "bao-cao-tai-chinh",
+      sheets: [
+        {
+          sheetName: "Tổng quan",
+          rows: buildFinanceSummaryRows({
+            totalFinalSalary,
+            totalRecords: rows.length,
+            fullProfileCount: sameDepartmentCount,
+            limitedCount,
+            latestUpdatedAt: getLatestUpdatedAt(rows),
+          }),
+        },
+        {
+          sheetName: "Chi tiết tài chính",
+          rows: buildFinanceReportRows(filteredRows),
+        },
+      ],
+    });
+
+    toast.success("Đã xuất báo cáo tài chính", {
+      description: `Đã xuất ${filteredRows.length} bản ghi theo bộ lọc hiện tại.`,
+    });
+  };
+
   return (
     <div className="min-w-0 space-y-6 p-6">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -238,7 +326,11 @@ export default function Finance() {
           </p>
         </div>
 
-        <Button variant="outline" disabled={isLoading || rows.length === 0}>
+        <Button
+          variant="outline"
+          disabled={isLoading || filteredRows.length === 0}
+          onClick={exportFinanceReport}
+        >
           <Download className="h-4 w-4" />
           Xuất báo cáo
         </Button>
@@ -465,6 +557,7 @@ export default function Finance() {
                           </Badge>
                         )}
                       </TableCell>
+
                       <TableCell className="text-right">
                         <Button
                           size="sm"
@@ -484,6 +577,7 @@ export default function Finance() {
           </div>
         </CardContent>
       </Card>
+
       <Dialog
         open={Boolean(selectedEmployeeId)}
         onOpenChange={(open) => {
