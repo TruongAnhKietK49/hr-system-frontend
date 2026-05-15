@@ -32,6 +32,11 @@ export type RefreshResponseData = {
   user?: AuthUser;
 };
 
+export type ChangePasswordPayload = {
+  currentPassword: string;
+  newPassword: string;
+};
+
 export type ApiResponse<T> = {
   success: boolean;
   message: string;

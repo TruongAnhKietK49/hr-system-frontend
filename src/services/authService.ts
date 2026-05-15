@@ -3,6 +3,7 @@ import {
   ApiResponse,
   LoginPayload,
   LoginResponseData,
+  ChangePasswordPayload,
   RefreshResponseData,
 } from "@/types/auth";
 
@@ -23,5 +24,14 @@ export const authService = {
     );
 
     return response.data.data;
+  },
+
+  async changePassword(payload: ChangePasswordPayload) {
+    const response = await API.post<ApiResponse<null>>(
+      "/auth/change-password",
+      payload,
+    );
+
+    return response.data;
   },
 };
