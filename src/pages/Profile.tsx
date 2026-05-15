@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/select";
 
 import { useRole } from "@/context/RoleContext";
+import { useAuth } from "@/context/AuthContext";
 import { getApiErrorMessage } from "@/lib/getApiErrorMessage";
 import { ROLE_LABELS } from "@/lib/roles";
 import { employeeKeys, employeeService } from "@/services/employeeService";
@@ -170,6 +171,7 @@ function Field({
 
 export default function Profile() {
   const queryClient = useQueryClient();
+  const { updateUser } = useAuth();
   const { role, username, employeeId } = useRole();
 
   const [isEditing, setIsEditing] = useState(false);
@@ -198,7 +200,13 @@ export default function Profile() {
       payload: UpdateEmployeeProfilePayload;
     }) => employeeService.update(targetEmployeeId, payload),
 
-    onSuccess: async () => {
+    onSuccess: async (_updatedEmployee, variables) => {
+      if (variables.payload.fullName) {
+        updateUser({
+          fullName: variables.payload.fullName,
+        });
+      }
+
       toast.success("Cập nhật hồ sơ cá nhân thành công");
 
       await Promise.all([

@@ -235,7 +235,7 @@ function EmptyCard({ message }: { message: string }) {
 }
 
 export default function Dashboard() {
-  const { role, username } = useRole();
+  const { role, username, fullName } = useRole();
 
   const canReadEmployees = role !== "finance";
   const canReadDepartments =
@@ -466,7 +466,7 @@ export default function Dashboard() {
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">
-            Xin chào, {username} 👋
+            Xin chào, {fullName} 👋
           </h1>
           <p className="text-sm text-muted-foreground">
             Bạn đang đăng nhập với vai trò{" "}
@@ -722,25 +722,33 @@ export default function Dashboard() {
         >
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
-              <Clock3 className="h-4 w-4" />
-              Ghi chú vận hành
+              <ShieldCheck className="h-4 w-4 text-primary" />
+              Trạng thái quản trị
             </CardTitle>
           </CardHeader>
 
           <CardContent className="space-y-3 text-sm text-muted-foreground">
             <div className="flex gap-2">
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
               <p>
-                Dashboard hiện tổng hợp từ nhiều API riêng, chưa cần endpoint
-                dashboard chuyên dụng.
+                Phân quyền truy cập đang được áp dụng theo từng vai trò người
+                dùng.
               </p>
             </div>
 
             <div className="flex gap-2">
-              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
+              <Clock3 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
               <p>
-                Query được bật/tắt theo role để tránh gọi nhầm API và phát sinh
-                lỗi 403 không cần thiết.
+                Yêu cầu nhân sự được xử lý thông qua luồng phê duyệt trước khi
+                cập nhật.
+              </p>
+            </div>
+
+            <div className="flex gap-2">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <p>
+                Các hoạt động quan trọng được ghi nhận để hỗ trợ kiểm tra và đối
+                soát.
               </p>
             </div>
           </CardContent>
