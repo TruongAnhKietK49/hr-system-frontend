@@ -99,12 +99,6 @@ import type { EmployeeListItem } from "@/types/employee";
 const NONE = "__none__";
 
 const departmentSchema = z.object({
-  departmentId: z
-    .string()
-    .trim()
-    .min(2, "Mã phòng ban tối thiểu 2 ký tự")
-    .max(10, "Mã phòng ban tối đa 10 ký tự")
-    .regex(/^[A-Z0-9]+$/, "Chỉ dùng chữ in hoa và số, ví dụ D001 hoặc HR"),
   departmentName: z
     .string()
     .trim()
@@ -147,9 +141,8 @@ function toCreatePayload(
   values: DepartmentFormValues,
 ): CreateDepartmentPayload {
   return {
-    departmentId: values.departmentId.trim().toUpperCase(),
     departmentName: values.departmentName.trim(),
-    managerId:
+    managerEmployeeId:
       values.managerId && values.managerId !== NONE ? values.managerId : null,
   };
 }
@@ -162,22 +155,6 @@ function toUpdatePayload(
     managerId:
       values.managerId && values.managerId !== NONE ? values.managerId : null,
   };
-}
-
-function generateNextDepartmentId(departments: DepartmentRecord[]) {
-  const maxNumber = departments.reduce((max, department) => {
-    const departmentId = department.DepartmentID ?? "";
-
-    const match = departmentId.match(/^D(\d+)$/i);
-    if (!match) return max;
-
-    const numericPart = Number(match[1]);
-    if (Number.isNaN(numericPart)) return max;
-
-    return Math.max(max, numericPart);
-  }, 0);
-
-  return `D${String(maxNumber + 1).padStart(3, "0")}`;
 }
 
 export default function Departments() {
@@ -200,7 +177,6 @@ export default function Departments() {
   const form = useForm<DepartmentFormValues>({
     resolver: zodResolver(departmentSchema),
     defaultValues: {
-      departmentId: "",
       departmentName: "",
       managerId: NONE,
     },
@@ -318,7 +294,11 @@ export default function Departments() {
   const createDepartmentMutation = useMutation({
     mutationFn: departmentService.create,
     onSuccess: async (department) => {
-      toast.success(`Đã tạo phòng ban ${department.DepartmentName}`);
+      toast.success(
+        department?.DepartmentID
+          ? `Đã tạo phòng ban ${department.DepartmentID}`
+          : "Đã tạo phòng ban mới",
+      );
 
       await Promise.all([
         queryClient.invalidateQueries({
@@ -330,6 +310,12 @@ export default function Departments() {
       ]);
 
       setFormOpen(false);
+      setManagerSearch("");
+      setDebouncedManagerSearch("");
+      form.reset({
+        departmentName: "",
+        managerId: NONE,
+      });
     },
     onError: (error) => {
       toast.error(getApiErrorMessage(error, "Không thể tạo phòng ban."));
@@ -398,7 +384,6 @@ export default function Departments() {
     setManagerSearch("");
     setDebouncedManagerSearch("");
     form.reset({
-      departmentId: generateNextDepartmentId(departments),
       departmentName: "",
       managerId: NONE,
     });
@@ -415,7 +400,6 @@ export default function Departments() {
     setManagerSearch("");
     setDebouncedManagerSearch("");
     form.reset({
-      departmentId: department.DepartmentID,
       departmentName: department.DepartmentName,
       managerId: department.ManagerID ?? NONE,
     });
@@ -457,22 +441,7 @@ export default function Departments() {
       return;
     }
 
-    const payload = toCreatePayload(values);
-
-    const isDuplicated = departments.some(
-      (department) =>
-        department.DepartmentID.toLowerCase() ===
-        payload.departmentId.toLowerCase(),
-    );
-
-    if (isDuplicated) {
-      form.setError("departmentId", {
-        message: "Mã phòng ban đã tồn tại",
-      });
-      return;
-    }
-
-    createDepartmentMutation.mutate(payload);
+    createDepartmentMutation.mutate(toCreatePayload(values));
   };
 
   const confirmDelete = () => {
@@ -488,7 +457,6 @@ export default function Departments() {
   useEffect(() => {
     if (!formOpen) {
       form.reset({
-        departmentId: "",
         departmentName: "",
         managerId: NONE,
       });
@@ -798,32 +766,24 @@ export default function Departments() {
               onSubmit={form.handleSubmit(onSubmit)}
               className="grid gap-4"
             >
-              <FormField
-                control={form.control}
-                name="departmentId"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Mã phòng ban *</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder="Tự động tạo mã phòng ban"
-                        readOnly
-                        disabled={Boolean(editingDepartment) || isSubmitting}
-                        className="bg-muted font-mono"
-                        maxLength={10}
-                        {...field}
-                      />
-                    </FormControl>
-                    {!editingDepartment && (
-                      <p className="text-xs text-muted-foreground">
-                        Mã phòng ban được tự động tạo dựa trên mã lớn nhất hiện
-                        có.
-                      </p>
-                    )}
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {editingDepartment ? (
+                <div className="space-y-2">
+                  <FormLabel>Mã phòng ban</FormLabel>
+                  <Input
+                    value={editingDepartment.DepartmentID}
+                    readOnly
+                    disabled
+                    className="bg-muted font-mono"
+                  />
+                </div>
+              ) : (
+                <Alert>
+                  <Building2 className="h-4 w-4" />
+                  <AlertDescription>
+                    Mã phòng ban sẽ được hệ thống tự động tạo sau khi lưu.
+                  </AlertDescription>
+                </Alert>
+              )}
 
               <FormField
                 control={form.control}
