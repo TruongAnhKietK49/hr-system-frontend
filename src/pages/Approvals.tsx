@@ -1,4 +1,4 @@
-import { useMemo, useState, ReactNode } from "react";
+import { useEffect, useMemo, useState, ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import {
@@ -48,6 +48,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 
 type ApprovalAction = "approve" | "reject";
+type ApprovalTab = "all" | "create" | "update" | "delete";
 
 type SalaryFormState = {
   baseSalary: string;
@@ -64,6 +65,8 @@ const INITIAL_SALARY_FORM: SalaryFormState = {
   allowance: "0",
   formulaVersion: "v1",
 };
+
+const PAGE_SIZE_OPTIONS = [5, 10, 20] as const;
 
 const POSITION_LABELS: Record<number, string> = {
   1: "Nhân viên",
@@ -233,6 +236,28 @@ function validateSalaryForm(form: SalaryFormState) {
   return null;
 }
 
+function getTotalPages(totalItems: number, pageSize: number) {
+  return Math.max(Math.ceil(totalItems / pageSize), 1);
+}
+
+function paginateRequests(
+  requests: PendingApproval[],
+  currentPage: number,
+  pageSize: number,
+) {
+  const startIndex = (currentPage - 1) * pageSize;
+  return requests.slice(startIndex, startIndex + pageSize);
+}
+
+function getPaginationRange(currentPage: number, totalPages: number) {
+  const pages = new Set<number>([1, totalPages, currentPage]);
+
+  if (currentPage > 1) pages.add(currentPage - 1);
+  if (currentPage < totalPages) pages.add(currentPage + 1);
+
+  return Array.from(pages).sort((a, b) => a - b);
+}
+
 function DialogScrollableBody({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-1 pr-3">
@@ -345,6 +370,10 @@ export default function Approvals() {
   const [rejectReason, setRejectReason] = useState("");
   const [salaryForm, setSalaryForm] =
     useState<SalaryFormState>(INITIAL_SALARY_FORM);
+  const [activeTab, setActiveTab] = useState<ApprovalTab>("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] =
+    useState<(typeof PAGE_SIZE_OPTIONS)[number]>(5);
 
   const pendingQuery = useQuery({
     queryKey: ["approvals", "pending"],
@@ -443,7 +472,49 @@ export default function Approvals() {
     };
   }, [pendingQuery.data]);
 
+  const activeRequests = groupedRequests[activeTab];
+  const totalPages = getTotalPages(activeRequests.length, pageSize);
+  const paginatedRequests = useMemo(
+    () => paginateRequests(activeRequests, currentPage, pageSize),
+    [activeRequests, currentPage, pageSize],
+  );
+  const paginationRange = useMemo(
+    () => getPaginationRange(currentPage, totalPages),
+    [currentPage, totalPages],
+  );
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages));
+  }, [totalPages]);
+
   const isSubmitting = approveMutation.isPending || rejectMutation.isPending;
+
+  const handleTabChange = (value: string) => {
+    setActiveTab(value as ApprovalTab);
+    setCurrentPage(1);
+  };
+
+  const handlePageSizeChange = (value: string) => {
+    setPageSize(Number(value) as (typeof PAGE_SIZE_OPTIONS)[number]);
+    setCurrentPage(1);
+  };
+
+  const handleRefresh = async () => {
+    const result = await pendingQuery.refetch();
+
+    if (result.isError) {
+      toast.error("Không thể làm mới danh sách", {
+        description: getApiErrorMessage(
+          result.error,
+          "Có lỗi xảy ra khi tải lại danh sách yêu cầu.",
+        ),
+      });
+      return;
+    }
+
+    setCurrentPage(1);
+    toast.success("Đã làm mới danh sách yêu cầu");
+  };
 
   const openApproveDialog = (request: PendingApproval) => {
     setSelectedRequest(request);
@@ -632,7 +703,87 @@ export default function Approvals() {
       );
     }
 
-    return <div className="space-y-3">{items.map(renderRequestCard)}</div>;
+    return (
+      <div className="space-y-4">
+        <div className="space-y-3">{items.map(renderRequestCard)}</div>
+
+        {activeRequests.length > pageSize && (
+          <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-muted-foreground">
+              Hiển thị{" "}
+              <span className="font-medium text-foreground">
+                {(currentPage - 1) * pageSize + 1}
+              </span>{" "}
+              -{" "}
+              <span className="font-medium text-foreground">
+                {Math.min(currentPage * pageSize, activeRequests.length)}
+              </span>{" "}
+              / {activeRequests.length} yêu cầu
+            </p>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground"
+                value={pageSize}
+                onChange={(event) => handlePageSizeChange(event.target.value)}
+              >
+                {PAGE_SIZE_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option} / trang
+                  </option>
+                ))}
+              </select>
+
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={currentPage === 1}
+                onClick={() => setCurrentPage((page) => Math.max(page - 1, 1))}
+              >
+                Trước
+              </Button>
+
+              <div className="flex items-center gap-1">
+                {paginationRange.map((page, index) => {
+                  const previousPage = paginationRange[index - 1];
+                  const shouldShowEllipsis =
+                    previousPage && page - previousPage > 1;
+
+                  return (
+                    <div key={page} className="flex items-center gap-1">
+                      {shouldShowEllipsis && (
+                        <span className="px-1 text-sm text-muted-foreground">
+                          ...
+                        </span>
+                      )}
+                      <Button
+                        variant={page === currentPage ? "default" : "outline"}
+                        size="sm"
+                        className="h-9 w-9 p-0"
+                        onClick={() => setCurrentPage(page)}
+                      >
+                        {page}
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={currentPage === totalPages}
+                onClick={() =>
+                  setCurrentPage((page) => Math.min(page + 1, totalPages))
+                }
+              >
+                Sau
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
   };
 
   const isDetailDialogOpen = Boolean(selectedRequest && !action);
@@ -652,7 +803,7 @@ export default function Approvals() {
 
         <Button
           variant="outline"
-          onClick={() => pendingQuery.refetch()}
+          onClick={handleRefresh}
           disabled={pendingQuery.isFetching}
         >
           {pendingQuery.isFetching ? (
@@ -718,7 +869,11 @@ export default function Approvals() {
         </Card>
       </div>
 
-      <Tabs defaultValue="all" className="space-y-4">
+      <Tabs
+        value={activeTab}
+        onValueChange={handleTabChange}
+        className="space-y-4"
+      >
         <TabsList>
           <TabsTrigger value="all">
             Tất cả ({groupedRequests.all.length})
@@ -734,20 +889,8 @@ export default function Approvals() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="all">
-          {renderRequestList(groupedRequests.all)}
-        </TabsContent>
-
-        <TabsContent value="create">
-          {renderRequestList(groupedRequests.create)}
-        </TabsContent>
-
-        <TabsContent value="update">
-          {renderRequestList(groupedRequests.update)}
-        </TabsContent>
-
-        <TabsContent value="delete">
-          {renderRequestList(groupedRequests.delete)}
+        <TabsContent value={activeTab}>
+          {renderRequestList(paginatedRequests)}
         </TabsContent>
       </Tabs>
 

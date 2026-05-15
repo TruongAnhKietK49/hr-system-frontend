@@ -20,3 +20,27 @@ export type AuditLogFilters = {
   page?: number;
   limit?: number;
 };
+
+export type AuditLog = {
+  LogID?: number;
+  ActorID?: string | null;
+  ActorRole?: string | null;
+  Action?: string | null;
+  TableName?: string | null;
+  RecordID?: string | number | null;
+  CreatedAt?: string | null;
+  Summary?: string | null;
+  OldValue?: string | null;
+  NewValue?: string | null;
+
+  logId?: number;
+  actorId?: string | null;
+  actorRole?: string | null;
+  action?: string | null;
+  tableName?: string | null;
+  recordId?: string | number | null;
+  createdAt?: string | null;
+  summary?: string | null;
+  oldValue?: string | null;
+  newValue?: string | null;
+};

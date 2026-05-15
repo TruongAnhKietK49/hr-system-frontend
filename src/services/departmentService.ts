@@ -3,18 +3,35 @@ import type { ApiResponse } from "@/types/auth";
 import type {
   CreateDepartmentPayload,
   DepartmentRecord,
+  ManagerCandidate,
   UpdateDepartmentPayload,
 } from "@/types/department";
 
 export const departmentKeys = {
   all: ["departments"] as const,
   lists: () => [...departmentKeys.all, "list"] as const,
+  managerCandidates: (keyword: string) =>
+    [...departmentKeys.all, "manager-candidates", keyword] as const,
 };
 
 export const departmentService = {
   async getAll() {
     const response =
       await API.get<ApiResponse<DepartmentRecord[]>>("/departments");
+
+    return response.data.data;
+  },
+
+  async searchManagerCandidates(keyword: string, limit = 20) {
+    const response = await API.get<ApiResponse<ManagerCandidate[]>>(
+      "/departments/manager-candidates",
+      {
+        params: {
+          keyword: keyword.trim() || undefined,
+          limit,
+        },
+      },
+    );
 
     return response.data.data;
   },

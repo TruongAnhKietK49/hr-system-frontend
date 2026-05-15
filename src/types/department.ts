@@ -14,3 +14,14 @@ export type UpdateDepartmentPayload = {
   departmentName?: string;
   managerId?: string | null;
 };
+
+export type ManagerCandidate = {
+  EmployeeID: string;
+  FullName: string | null;
+  DepartmentID: string | null;
+  DepartmentName: string | null;
+  PositionID: number | null;
+  PositionName: string | null;
+  IsActive: boolean;
+  IsManagingDepartment: boolean;
+};

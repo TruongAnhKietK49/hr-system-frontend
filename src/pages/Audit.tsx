@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   CalendarClock,
   Eye,
   Filter,
@@ -8,6 +9,7 @@ import {
   RefreshCcw,
   Search,
   ScrollText,
+  ShieldAlert,
   ShieldCheck,
 } from "lucide-react";
 
@@ -37,11 +39,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+
 import { getApiErrorMessage } from "@/lib/getApiErrorMessage";
 import { auditKeys, auditService } from "@/services/auditService";
 import type { AuditLogFilters, AuditLogRecord } from "@/types/audit";
 
 const ALL = "all";
+const PAGE_LIMIT = 20;
 
 const ACTOR_ROLE_OPTIONS = [
   "Director",
@@ -76,6 +80,35 @@ const TABLE_NAME_OPTIONS = [
   "EmployeeSalaryResult",
 ];
 
+type AuditAlertSeverity = "low" | "medium" | "high" | "critical";
+
+type AuditAlert = {
+  id: string;
+  title: string;
+  description: string;
+  severity: AuditAlertSeverity;
+  actorId?: string | null;
+  actionType?: string | null;
+  tableName?: string | null;
+  count?: number;
+};
+
+const SENSITIVE_TABLES = ["EmployeeSalaryConfig", "EmployeeSalaryResult"];
+
+const HIGH_RISK_ACTIONS = [
+  "DELETE_EMPLOYEE",
+  "UPDATE_SALARY",
+  "DELETE_DEPARTMENT",
+];
+
+const NORMAL_BUSINESS_ACTIONS = [
+  "LOGIN_SUCCESS",
+  "CREATE_HR_REQUEST",
+  "APPROVE_HR_REQUEST",
+  "REJECT_HR_REQUEST",
+  "UPDATE_EMPLOYEE",
+];
+
 function getActionClass(actionType: string) {
   if (actionType.includes("LOGIN")) {
     return "border-blue-500/20 bg-blue-500/10 text-blue-700 hover:bg-blue-500/10 dark:text-blue-300";
@@ -104,6 +137,51 @@ function getActionClass(actionType: string) {
   return "border-border bg-muted text-muted-foreground";
 }
 
+function getSeverityScore(severity: AuditAlertSeverity) {
+  switch (severity) {
+    case "critical":
+      return 4;
+    case "high":
+      return 3;
+    case "medium":
+      return 2;
+    case "low":
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+function getSeverityLabel(severity: AuditAlertSeverity) {
+  switch (severity) {
+    case "critical":
+      return "Nghiêm trọng";
+    case "high":
+      return "Cao";
+    case "medium":
+      return "Trung bình";
+    case "low":
+      return "Thấp";
+    default:
+      return "Không xác định";
+  }
+}
+
+function getSeverityClassName(severity: AuditAlertSeverity) {
+  switch (severity) {
+    case "critical":
+      return "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300";
+    case "high":
+      return "border-orange-500/30 bg-orange-500/10 text-orange-700 dark:text-orange-300";
+    case "medium":
+      return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+    case "low":
+      return "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300";
+    default:
+      return "border-border bg-muted text-muted-foreground";
+  }
+}
+
 function formatDateTime(value?: string | null) {
   if (!value) return "—";
 
@@ -126,9 +204,35 @@ function parseJsonText(value?: string | null) {
   }
 }
 
-function getShortDetail(log: AuditLogRecord) {
-  const target = log.RecordID ? `#${log.RecordID}` : "";
-  return `${log.ActionType} ${log.TableName} ${target}`.trim();
+function getReadableAuditSummary(log: AuditLogRecord) {
+  const recordId = log.RecordID ? `#${log.RecordID}` : "";
+
+  switch (log.ActionType) {
+    case "LOGIN_SUCCESS":
+      return `Đăng nhập thành công vào hệ thống`;
+    case "CREATE_HR_REQUEST":
+      return `Tạo yêu cầu nhân sự ${recordId}`;
+    case "APPROVE_HR_REQUEST":
+      return `Phê duyệt yêu cầu nhân sự ${recordId}`;
+    case "REJECT_HR_REQUEST":
+      return `Từ chối yêu cầu nhân sự ${recordId}`;
+    case "CREATE_EMPLOYEE":
+      return `Tạo hồ sơ nhân viên ${recordId}`;
+    case "UPDATE_EMPLOYEE":
+      return `Cập nhật hồ sơ nhân viên ${recordId}`;
+    case "DELETE_EMPLOYEE":
+      return `Thao tác xóa nhân viên ${recordId}`;
+    case "UPDATE_SALARY":
+      return `Cập nhật thông tin lương ${recordId}`;
+    case "CREATE_DEPARTMENT":
+      return `Tạo phòng ban ${recordId}`;
+    case "UPDATE_DEPARTMENT":
+      return `Cập nhật phòng ban ${recordId}`;
+    case "DELETE_DEPARTMENT":
+      return `Xóa phòng ban ${recordId}`;
+    default:
+      return `${log.ActionType} trên bảng ${log.TableName} ${recordId}`.trim();
+  }
 }
 
 function buildFilters({
@@ -147,8 +251,194 @@ function buildFilters({
     actionType: actionType === ALL ? undefined : actionType,
     tableName: tableName === ALL ? undefined : tableName,
     page,
-    limit: 20,
+    limit: PAGE_LIMIT,
   };
+}
+
+function isRecentLog(log: AuditLogRecord, minutes: number) {
+  if (!log.Timestamp) return false;
+
+  const time = new Date(log.Timestamp).getTime();
+  if (Number.isNaN(time)) return false;
+
+  return Date.now() - time <= minutes * 60 * 1000;
+}
+
+function createAlertId(parts: Array<string | number | null | undefined>) {
+  return parts.filter(Boolean).join("-");
+}
+
+function deduplicateAlerts(alerts: AuditAlert[]) {
+  const map = new Map<string, AuditAlert>();
+
+  alerts.forEach((alert) => {
+    if (!map.has(alert.id)) {
+      map.set(alert.id, alert);
+    }
+  });
+
+  return Array.from(map.values());
+}
+
+function analyzeAuditAlerts(logs: AuditLogRecord[]) {
+  const alerts: AuditAlert[] = [];
+  const recentLogs = logs.filter((log) => isRecentLog(log, 30));
+
+  const logsByActor = recentLogs.reduce<Record<string, AuditLogRecord[]>>(
+    (result, log) => {
+      const actorId = log.ActorID ?? "SYSTEM_OR_UNKNOWN";
+
+      if (!result[actorId]) {
+        result[actorId] = [];
+      }
+
+      result[actorId].push(log);
+
+      return result;
+    },
+    {},
+  );
+
+  Object.entries(logsByActor).forEach(([actorId, actorLogs]) => {
+    if (actorId === "SYSTEM_OR_UNKNOWN" && actorLogs.length > 0) {
+      alerts.push({
+        id: createAlertId(["unknown-actor", actorLogs.length]),
+        title: "Log thiếu người thực hiện",
+        description:
+          "Một số bản ghi nhật ký không xác định được người thực hiện. Cần kiểm tra lại nguồn ghi log hoặc phiên đăng nhập.",
+        severity: "critical",
+        actorId: null,
+        count: actorLogs.length,
+      });
+
+      return;
+    }
+
+    if (actorLogs.length >= 10) {
+      alerts.push({
+        id: createAlertId(["high-frequency", actorId]),
+        title: "Tần suất thao tác bất thường",
+        description: `Người dùng ${actorId} thực hiện ${actorLogs.length} thao tác trong 30 phút gần nhất.`,
+        severity: "high",
+        actorId,
+        count: actorLogs.length,
+      });
+    }
+
+    const updateEmployeeLogs = actorLogs.filter(
+      (log) => log.ActionType === "UPDATE_EMPLOYEE",
+    );
+
+    if (updateEmployeeLogs.length >= 5) {
+      alerts.push({
+        id: createAlertId(["mass-update-employee", actorId]),
+        title: "Cập nhật hồ sơ nhân viên hàng loạt",
+        description: `Người dùng ${actorId} cập nhật ${updateEmployeeLogs.length} hồ sơ nhân viên trong thời gian ngắn.`,
+        severity: "medium",
+        actorId,
+        actionType: "UPDATE_EMPLOYEE",
+        tableName: "Employee",
+        count: updateEmployeeLogs.length,
+      });
+    }
+
+    const createRequestLogs = actorLogs.filter(
+      (log) => log.ActionType === "CREATE_HR_REQUEST",
+    );
+
+    if (createRequestLogs.length >= 5) {
+      alerts.push({
+        id: createAlertId(["many-hr-request", actorId]),
+        title: "Tạo nhiều yêu cầu nhân sự",
+        description: `Người dùng ${actorId} tạo ${createRequestLogs.length} yêu cầu nhân sự trong thời gian ngắn.`,
+        severity: "medium",
+        actorId,
+        actionType: "CREATE_HR_REQUEST",
+        tableName: "HR_Request",
+        count: createRequestLogs.length,
+      });
+    }
+  });
+
+  recentLogs.forEach((log) => {
+    const recordId = log.RecordID ?? "unknown-record";
+
+    if (!log.ActionType || !log.TableName) {
+      alerts.push({
+        id: createAlertId([
+          "invalid-log",
+          log.LogID,
+          log.ActorID,
+          log.ActionType,
+          log.TableName,
+        ]),
+        title: "Log có cấu trúc bất thường",
+        description:
+          "Một bản ghi nhật ký thiếu hành động hoặc tên bảng. Đây có thể là lỗi hệ thống hoặc thao tác không hợp lệ.",
+        severity: "critical",
+        actorId: log.ActorID,
+        actionType: log.ActionType,
+        tableName: log.TableName,
+      });
+
+      return;
+    }
+
+    if (log.ActionType === "DELETE_EMPLOYEE") {
+      alerts.push({
+        id: createAlertId(["delete-employee", log.ActorID, recordId]),
+        title: "Thao tác xóa nhân viên",
+        description: `Người dùng ${log.ActorID ?? "không xác định"} thực hiện thao tác xóa nhân viên ${log.RecordID ?? ""}. Cần kiểm tra yêu cầu phê duyệt liên quan.`,
+        severity: "high",
+        actorId: log.ActorID,
+        actionType: log.ActionType,
+        tableName: log.TableName,
+      });
+    }
+
+    if (HIGH_RISK_ACTIONS.includes(log.ActionType)) {
+      alerts.push({
+        id: createAlertId([
+          "high-risk-action",
+          log.ActorID,
+          log.ActionType,
+          recordId,
+        ]),
+        title: "Thao tác có rủi ro cao",
+        description: `Phát hiện thao tác ${log.ActionType} trên bảng ${log.TableName}.`,
+        severity: log.ActionType.includes("DELETE") ? "high" : "medium",
+        actorId: log.ActorID,
+        actionType: log.ActionType,
+        tableName: log.TableName,
+      });
+    }
+
+    const isNormalBusinessAction = NORMAL_BUSINESS_ACTIONS.includes(
+      log.ActionType,
+    );
+
+    if (SENSITIVE_TABLES.includes(log.TableName) && !isNormalBusinessAction) {
+      alerts.push({
+        id: createAlertId([
+          "sensitive-table",
+          log.ActorID,
+          log.TableName,
+          log.ActionType,
+          recordId,
+        ]),
+        title: "Thao tác trên dữ liệu nhạy cảm",
+        description: `Người dùng ${log.ActorID ?? "không xác định"} thao tác trên bảng ${log.TableName}.`,
+        severity: "high",
+        actorId: log.ActorID,
+        actionType: log.ActionType,
+        tableName: log.TableName,
+      });
+    }
+  });
+
+  return deduplicateAlerts(alerts).sort(
+    (a, b) => getSeverityScore(b.severity) - getSeverityScore(a.severity),
+  );
 }
 
 export default function Audit() {
@@ -198,14 +488,24 @@ export default function Audit() {
     });
   }, [logs, query]);
 
+  const auditAlerts = useMemo(() => analyzeAuditAlerts(logs), [logs]);
+
   const stats = useMemo(() => {
+    const criticalAlerts = auditAlerts.filter(
+      (alert) => alert.severity === "critical",
+    ).length;
+
+    const highAlerts = auditAlerts.filter(
+      (alert) => alert.severity === "high",
+    ).length;
+
     return {
       total: logs.length,
       updates: logs.filter((log) => log.ActionType.includes("UPDATE")).length,
-      approvals: logs.filter((log) => log.ActionType.includes("APPROVE"))
-        .length,
+      criticalAlerts,
+      highAlerts,
     };
-  }, [logs]);
+  }, [auditAlerts, logs]);
 
   const resetFilters = () => {
     setQuery("");
@@ -239,7 +539,7 @@ export default function Audit() {
   const isLoading = auditQuery.isLoading;
   const isError = auditQuery.isError;
   const isEmpty = !isLoading && !isError && filteredLogs.length === 0;
-  const canGoNext = logs.length === 20;
+  const canGoNext = logs.length === PAGE_LIMIT;
 
   return (
     <div className="min-w-0 space-y-6 p-6">
@@ -248,12 +548,12 @@ export default function Audit() {
           Nhật ký kiểm tra
         </h1>
         <p className="text-sm text-muted-foreground">
-          Theo dõi thao tác quan trọng để phục vụ giám sát, truy vết và kiểm
-          toán hệ thống.
+          Theo dõi thao tác quan trọng, phát hiện dấu hiệu bất thường và phục vụ
+          truy vết hệ thống.
         </p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardContent className="p-5">
             <p className="text-xs uppercase text-muted-foreground">
@@ -278,8 +578,21 @@ export default function Audit() {
 
         <Card>
           <CardContent className="p-5">
-            <p className="text-xs uppercase text-muted-foreground">Quyền xem</p>
-            <p className="mt-2 flex items-center gap-2 text-2xl font-bold text-foreground">
+            <p className="text-xs uppercase text-muted-foreground">
+              Cảnh báo mức cao
+            </p>
+            <p className="mt-2 text-2xl font-bold text-foreground">
+              {isLoading ? "..." : stats.highAlerts}
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-5">
+            <p className="text-xs uppercase text-muted-foreground">
+              Quyền giám sát
+            </p>
+            <p className="mt-2 flex items-center gap-2 text-xl font-bold text-foreground">
               <ShieldCheck className="h-5 w-5" />
               Director / HR Manager
             </p>
@@ -358,6 +671,90 @@ export default function Audit() {
             </Button>
           </div>
         </div>
+      </Card>
+
+      <Card className="border-border shadow-sm">
+        <CardHeader className="gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ShieldAlert className="h-4 w-4 text-amber-600" />
+              Cảnh báo an toàn hệ thống
+            </CardTitle>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Cảnh báo được phân tích từ nhật ký trong 30 phút gần nhất theo các
+              rule rủi ro.
+            </p>
+          </div>
+
+          <Badge variant="outline">{auditAlerts.length} cảnh báo</Badge>
+        </CardHeader>
+
+        <CardContent>
+          {isLoading ? (
+            <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Đang phân tích nhật ký...
+            </div>
+          ) : auditAlerts.length === 0 ? (
+            <div className="flex gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-700 dark:text-emerald-300">
+              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <p className="font-semibold">Chưa phát hiện bất thường</p>
+                <p className="mt-1 opacity-90">
+                  Nhật ký gần đây chưa ghi nhận thao tác rủi ro hoặc tần suất xử
+                  lý bất thường.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {auditAlerts.slice(0, 5).map((alert) => (
+                <div
+                  key={alert.id}
+                  className={`rounded-xl border p-4 ${getSeverityClassName(
+                    alert.severity,
+                  )}`}
+                >
+                  <div className="flex gap-3">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold">{alert.title}</p>
+                        <Badge variant="outline">
+                          {getSeverityLabel(alert.severity)}
+                        </Badge>
+                      </div>
+
+                      <p className="mt-1 text-sm opacity-90">
+                        {alert.description}
+                      </p>
+
+                      <div className="mt-2 flex flex-wrap gap-2 text-xs opacity-80">
+                        {alert.actorId && <span>Actor: {alert.actorId}</span>}
+                        {alert.actionType && (
+                          <span>Action: {alert.actionType}</span>
+                        )}
+                        {alert.tableName && (
+                          <span>Bảng: {alert.tableName}</span>
+                        )}
+                        {alert.count && <span>Số lần: {alert.count}</span>}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              {auditAlerts.length > 5 && (
+                <p className="text-xs text-muted-foreground">
+                  Còn {auditAlerts.length - 5} cảnh báo khác. Hãy lọc nhật ký
+                  theo người thực hiện, hành động hoặc bảng để kiểm tra chi
+                  tiết.
+                </p>
+              )}
+            </div>
+          )}
+        </CardContent>
       </Card>
 
       <Card className="min-w-0 overflow-hidden shadow-sm">
@@ -481,7 +878,7 @@ export default function Audit() {
                       </TableCell>
 
                       <TableCell className="min-w-64 max-w-md truncate">
-                        {getShortDetail(log)}
+                        {getReadableAuditSummary(log)}
                       </TableCell>
 
                       <TableCell className="text-right">

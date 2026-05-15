@@ -7,6 +7,8 @@ import { toast } from "sonner";
 import {
   AlertTriangle,
   Building2,
+  Check,
+  ChevronsUpDown,
   Loader2,
   Pencil,
   Plus,
@@ -32,6 +34,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -49,12 +59,10 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Table,
   TableBody,
@@ -72,6 +80,9 @@ import {
 
 import { useRole } from "@/context/RoleContext";
 import { getApiErrorMessage } from "@/lib/getApiErrorMessage";
+import { cn } from "@/lib/utils";
+import { PaginationControls } from "@/components/common/PaginationControls";
+import { usePagination } from "@/hooks/usePagination";
 import {
   departmentKeys,
   departmentService,
@@ -80,6 +91,7 @@ import { employeeKeys, employeeService } from "@/services/employeeService";
 import type {
   CreateDepartmentPayload,
   DepartmentRecord,
+  ManagerCandidate,
   UpdateDepartmentPayload,
 } from "@/types/department";
 import type { EmployeeListItem } from "@/types/employee";
@@ -118,6 +130,12 @@ function getManagerLabel(
   return `${manager.FullName} (${managerId})`;
 }
 
+function getCandidateLabel(candidate: ManagerCandidate) {
+  return candidate.FullName
+    ? `${candidate.FullName} (${candidate.EmployeeID})`
+    : candidate.EmployeeID;
+}
+
 function getEmployeeCount(
   departmentId: string,
   employeeCountsByDepartment: Map<string, number>,
@@ -146,6 +164,22 @@ function toUpdatePayload(
   };
 }
 
+function generateNextDepartmentId(departments: DepartmentRecord[]) {
+  const maxNumber = departments.reduce((max, department) => {
+    const departmentId = department.DepartmentID ?? "";
+
+    const match = departmentId.match(/^D(\d+)$/i);
+    if (!match) return max;
+
+    const numericPart = Number(match[1]);
+    if (Number.isNaN(numericPart)) return max;
+
+    return Math.max(max, numericPart);
+  }, 0);
+
+  return `D${String(maxNumber + 1).padStart(3, "0")}`;
+}
+
 export default function Departments() {
   const queryClient = useQueryClient();
   const { role } = useRole();
@@ -159,6 +193,9 @@ export default function Departments() {
   const [deleteTarget, setDeleteTarget] = useState<DepartmentRecord | null>(
     null,
   );
+  const [managerComboboxOpen, setManagerComboboxOpen] = useState(false);
+  const [managerSearch, setManagerSearch] = useState("");
+  const [debouncedManagerSearch, setDebouncedManagerSearch] = useState("");
 
   const form = useForm<DepartmentFormValues>({
     resolver: zodResolver(departmentSchema),
@@ -168,6 +205,14 @@ export default function Departments() {
       managerId: NONE,
     },
   });
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedManagerSearch(managerSearch.trim());
+    }, 300);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [managerSearch]);
 
   const departmentsQuery = useQuery({
     queryKey: departmentKeys.lists(),
@@ -179,6 +224,14 @@ export default function Departments() {
     queryFn: employeeService.getAll,
   });
 
+  const managerCandidatesQuery = useQuery({
+    queryKey: departmentKeys.managerCandidates(debouncedManagerSearch),
+    queryFn: () =>
+      departmentService.searchManagerCandidates(debouncedManagerSearch, 20),
+    enabled: formOpen && canManageDepartments,
+    staleTime: 30_000,
+  });
+
   const departments = useMemo(
     () => departmentsQuery.data ?? [],
     [departmentsQuery.data],
@@ -187,6 +240,11 @@ export default function Departments() {
   const employees = useMemo(
     () => employeesQuery.data ?? [],
     [employeesQuery.data],
+  );
+
+  const managerCandidates = useMemo(
+    () => managerCandidatesQuery.data ?? [],
+    [managerCandidatesQuery.data],
   );
 
   const employeesById = useMemo(() => {
@@ -210,17 +268,6 @@ export default function Departments() {
     return counts;
   }, [employees]);
 
-  const managerOptions = useMemo(() => {
-    return employees
-      .filter((employee) => employee.IsActive)
-      .sort((a, b) =>
-        (a.FullName ?? a.EmployeeID).localeCompare(
-          b.FullName ?? b.EmployeeID,
-          "vi",
-        ),
-      );
-  }, [employees]);
-
   const filteredDepartments = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
@@ -239,6 +286,18 @@ export default function Departments() {
         .some((value) => String(value).toLowerCase().includes(normalizedQuery));
     });
   }, [departments, employeesById, query]);
+
+  const {
+    page: departmentPage,
+    pageSize: departmentPageSize,
+    paginatedItems: paginatedDepartments,
+    setPage: setDepartmentPage,
+    setPageSize: setDepartmentPageSize,
+  } = usePagination({
+    items: filteredDepartments,
+    initialPageSize: 10,
+    resetDeps: [query],
+  });
 
   const totals = useMemo(() => {
     const totalEmployees = departments.reduce((total, department) => {
@@ -261,9 +320,14 @@ export default function Departments() {
     onSuccess: async (department) => {
       toast.success(`Đã tạo phòng ban ${department.DepartmentName}`);
 
-      await queryClient.invalidateQueries({
-        queryKey: departmentKeys.all,
-      });
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: departmentKeys.all,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: employeeKeys.all,
+        }),
+      ]);
 
       setFormOpen(false);
     },
@@ -283,9 +347,14 @@ export default function Departments() {
     onSuccess: async (department) => {
       toast.success(`Đã cập nhật phòng ban ${department.DepartmentName}`);
 
-      await queryClient.invalidateQueries({
-        queryKey: departmentKeys.all,
-      });
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: departmentKeys.all,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: employeeKeys.all,
+        }),
+      ]);
 
       setFormOpen(false);
       setEditingDepartment(null);
@@ -300,9 +369,14 @@ export default function Departments() {
     onSuccess: async () => {
       toast.success("Đã xóa phòng ban");
 
-      await queryClient.invalidateQueries({
-        queryKey: departmentKeys.all,
-      });
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: departmentKeys.all,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: employeeKeys.all,
+        }),
+      ]);
 
       setDeleteTarget(null);
     },
@@ -321,8 +395,10 @@ export default function Departments() {
     }
 
     setEditingDepartment(null);
+    setManagerSearch("");
+    setDebouncedManagerSearch("");
     form.reset({
-      departmentId: "",
+      departmentId: generateNextDepartmentId(departments),
       departmentName: "",
       managerId: NONE,
     });
@@ -336,6 +412,8 @@ export default function Departments() {
     }
 
     setEditingDepartment(department);
+    setManagerSearch("");
+    setDebouncedManagerSearch("");
     form.reset({
       departmentId: department.DepartmentID,
       departmentName: department.DepartmentName,
@@ -583,7 +661,7 @@ export default function Departments() {
 
               {!isLoading &&
                 !isError &&
-                filteredDepartments.map((department) => {
+                paginatedDepartments.map((department) => {
                   const employeeCount = getEmployeeCount(
                     department.DepartmentID,
                     employeeCountsByDepartment,
@@ -689,6 +767,16 @@ export default function Departments() {
             </TableBody>
           </Table>
         </div>
+
+        {!isLoading && !isError && filteredDepartments.length > 0 && (
+          <PaginationControls
+            page={departmentPage}
+            pageSize={departmentPageSize}
+            totalItems={filteredDepartments.length}
+            onPageChange={setDepartmentPage}
+            onPageSizeChange={setDepartmentPageSize}
+          />
+        )}
       </Card>
 
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
@@ -718,15 +806,20 @@ export default function Departments() {
                     <FormLabel>Mã phòng ban *</FormLabel>
                     <FormControl>
                       <Input
-                        placeholder="VD: D001"
+                        placeholder="Tự động tạo mã phòng ban"
+                        readOnly
                         disabled={Boolean(editingDepartment) || isSubmitting}
+                        className="bg-muted font-mono"
                         maxLength={10}
                         {...field}
-                        onChange={(event) =>
-                          field.onChange(event.target.value.toUpperCase())
-                        }
                       />
                     </FormControl>
+                    {!editingDepartment && (
+                      <p className="text-xs text-muted-foreground">
+                        Mã phòng ban được tự động tạo dựa trên mã lớn nhất hiện
+                        có.
+                      </p>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}
@@ -753,37 +846,128 @@ export default function Departments() {
               <FormField
                 control={form.control}
                 name="managerId"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Trưởng phòng</FormLabel>
-                    <Select
-                      value={field.value || NONE}
-                      onValueChange={field.onChange}
-                      disabled={isSubmitting || employeesQuery.isLoading}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Chọn trưởng phòng" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value={NONE}>Chưa gán</SelectItem>
+                render={({ field }) => {
+                  const selectedManagerId =
+                    field.value && field.value !== NONE ? field.value : null;
+                  const selectedManagerLabel = selectedManagerId
+                    ? getManagerLabel(selectedManagerId, employeesById)
+                    : null;
 
-                        {managerOptions.map((employee) => (
-                          <SelectItem
-                            key={employee.EmployeeID}
-                            value={employee.EmployeeID}
-                          >
-                            {employee.FullName
-                              ? `${employee.FullName} (${employee.EmployeeID})`
-                              : employee.EmployeeID}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
+                  return (
+                    <FormItem>
+                      <FormLabel>Trưởng phòng</FormLabel>
+                      <Popover
+                        open={managerComboboxOpen}
+                        onOpenChange={setManagerComboboxOpen}
+                      >
+                        <PopoverTrigger asChild>
+                          <FormControl>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              role="combobox"
+                              disabled={isSubmitting}
+                              className={cn(
+                                "w-full justify-between font-normal",
+                                !selectedManagerId && "text-muted-foreground",
+                              )}
+                            >
+                              <span className="truncate">
+                                {selectedManagerId
+                                  ? (selectedManagerLabel ?? selectedManagerId)
+                                  : "Chưa gán"}
+                              </span>
+                              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                            </Button>
+                          </FormControl>
+                        </PopoverTrigger>
+
+                        <PopoverContent
+                          align="start"
+                          className="w-[--radix-popover-trigger-width] p-0"
+                        >
+                          <Command shouldFilter={false}>
+                            <CommandInput
+                              value={managerSearch}
+                              onValueChange={setManagerSearch}
+                              placeholder="Tìm theo tên, mã NV hoặc phòng ban..."
+                            />
+                            <CommandList>
+                              <CommandEmpty>
+                                {managerCandidatesQuery.isFetching
+                                  ? "Đang tìm nhân viên..."
+                                  : "Không tìm thấy nhân viên phù hợp"}
+                              </CommandEmpty>
+
+                              <CommandGroup>
+                                <CommandItem
+                                  value={NONE}
+                                  onSelect={() => {
+                                    field.onChange(NONE);
+                                    setManagerComboboxOpen(false);
+                                  }}
+                                >
+                                  <Check
+                                    className={cn(
+                                      "mr-2 h-4 w-4",
+                                      !selectedManagerId
+                                        ? "opacity-100"
+                                        : "opacity-0",
+                                    )}
+                                  />
+                                  Chưa gán trưởng phòng
+                                </CommandItem>
+
+                                {managerCandidates.map((candidate) => (
+                                  <CommandItem
+                                    key={candidate.EmployeeID}
+                                    value={`${candidate.EmployeeID} ${
+                                      candidate.FullName ?? ""
+                                    } ${candidate.DepartmentName ?? ""}`}
+                                    onSelect={() => {
+                                      field.onChange(candidate.EmployeeID);
+                                      setManagerComboboxOpen(false);
+                                    }}
+                                  >
+                                    <Check
+                                      className={cn(
+                                        "mr-2 h-4 w-4",
+                                        selectedManagerId ===
+                                          candidate.EmployeeID
+                                          ? "opacity-100"
+                                          : "opacity-0",
+                                      )}
+                                    />
+                                    <div className="min-w-0 flex-1">
+                                      <div className="truncate font-medium">
+                                        {getCandidateLabel(candidate)}
+                                      </div>
+                                      <div className="truncate text-xs text-muted-foreground">
+                                        {candidate.DepartmentName ??
+                                          "Chưa có phòng ban"}
+                                        {candidate.PositionName
+                                          ? ` · ${candidate.PositionName}`
+                                          : ""}
+                                        {candidate.IsManagingDepartment
+                                          ? " · Đang quản lý phòng ban"
+                                          : ""}
+                                      </div>
+                                    </div>
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
+                      <p className="text-xs text-muted-foreground">
+                        Danh sách được tìm kiếm từ API, không render toàn bộ
+                        nhân viên trong dropdown.
+                      </p>
+                      <FormMessage />
+                    </FormItem>
+                  );
+                }}
               />
             </form>
           </Form>

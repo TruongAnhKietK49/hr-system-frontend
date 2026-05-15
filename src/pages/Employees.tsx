@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Download,
   Eye,
@@ -10,20 +10,46 @@ import {
   Plus,
   RefreshCcw,
   Search,
+  Send,
   Trash2,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import { employeeKeys, employeeService } from "@/services/employeeService";
+import { hrRequestService } from "@/services/hrRequestService";
 import type { EmployeeListItem } from "@/types/employee";
+import type { CreateHRRequestPayload } from "@/types/hrRequest";
 import { getApiErrorMessage } from "@/lib/getApiErrorMessage";
 import { cn } from "@/lib/utils";
 import { useRole } from "@/context/RoleContext";
 import type { Role } from "@/lib/roles";
+import { exportRowsToExcel } from "@/lib/exportExcel";
+import { PaginationControls } from "@/components/common/PaginationControls";
+import { usePagination } from "@/hooks/usePagination";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -39,6 +65,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
   TooltipContent,
@@ -53,6 +80,24 @@ const POSITION_LABELS: Record<number, string> = {
   2: "Trưởng phòng",
   3: "Giám đốc",
 };
+
+const POSITION_OPTIONS = [
+  { id: 1, label: "Nhân viên" },
+  { id: 2, label: "Trưởng phòng" },
+  { id: 3, label: "Giám đốc" },
+];
+
+const EMPLOYMENT_STATUS_OPTIONS = [
+  { value: "ACTIVE", label: "Đang làm việc" },
+  { value: "ON_LEAVE", label: "Đang nghỉ phép" },
+  { value: "TERMINATED", label: "Đã nghỉ việc" },
+];
+
+const GENDER_OPTIONS = [
+  { value: "Male", label: "Nam" },
+  { value: "Female", label: "Nữ" },
+  { value: "Other", label: "Khác" },
+];
 
 const STATUS_META: Record<string, { label: string; className: string }> = {
   ACTIVE: {
@@ -73,6 +118,28 @@ const STATUS_META: Record<string, { label: string; className: string }> = {
     label: "Không hoạt động",
     className: "border-muted bg-muted text-muted-foreground",
   },
+};
+
+type EmployeeEditFormState = {
+  fullName: string;
+  gender: string;
+  dateOfBirth: string;
+  phoneNumber: string;
+  departmentId: string;
+  positionId: string;
+  employmentStatus: string;
+  isActive: string;
+};
+
+const EMPTY_EDIT_FORM: EmployeeEditFormState = {
+  fullName: "",
+  gender: "",
+  dateOfBirth: "",
+  phoneNumber: "",
+  departmentId: "",
+  positionId: "",
+  employmentStatus: "",
+  isActive: "",
 };
 
 function getPositionLabel(positionId?: number | null) {
@@ -105,6 +172,15 @@ function formatDate(value?: string | null) {
   return new Intl.DateTimeFormat("vi-VN").format(date);
 }
 
+function toDateInputValue(value?: string | null) {
+  if (!value) return "";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  return date.toISOString().slice(0, 10);
+}
+
 function formatVND(value?: string | number | null) {
   if (value === undefined || value === null || value === "") return "—";
 
@@ -132,19 +208,158 @@ function getAvatarLabel(employee: EmployeeListItem) {
   return employee.EmployeeID.slice(-1);
 }
 
+function toEditFormState(employee: EmployeeListItem): EmployeeEditFormState {
+  return {
+    fullName: employee.FullName ?? "",
+    gender: employee.Gender ?? "",
+    dateOfBirth: toDateInputValue(employee.DateOfBirth),
+    phoneNumber: employee.PhoneNumber ?? "",
+    departmentId: employee.DepartmentID ?? "",
+    positionId: employee.PositionID ? String(employee.PositionID) : "",
+    employmentStatus: employee.EmploymentStatus ?? "",
+    isActive: String(employee.IsActive),
+  };
+}
+
+function removeEmptyFields<T extends Record<string, unknown>>(payload: T) {
+  return Object.fromEntries(
+    Object.entries(payload).filter(([, value]) => {
+      return value !== undefined && value !== null && value !== "";
+    }),
+  ) as Partial<T>;
+}
+
+function buildUpdatePayload(
+  employee: EmployeeListItem,
+  form: EmployeeEditFormState,
+) {
+  const updateFields = removeEmptyFields({
+    fullName:
+      form.fullName.trim() !== (employee.FullName ?? "")
+        ? form.fullName.trim()
+        : undefined,
+    gender: form.gender !== (employee.Gender ?? "") ? form.gender : undefined,
+    dateOfBirth:
+      form.dateOfBirth !== toDateInputValue(employee.DateOfBirth)
+        ? form.dateOfBirth
+        : undefined,
+    phoneNumber:
+      form.phoneNumber.trim() !== (employee.PhoneNumber ?? "")
+        ? form.phoneNumber.trim()
+        : undefined,
+    departmentId:
+      form.departmentId !== (employee.DepartmentID ?? "")
+        ? form.departmentId
+        : undefined,
+    positionId:
+      form.positionId && Number(form.positionId) !== employee.PositionID
+        ? Number(form.positionId)
+        : undefined,
+    employmentStatus:
+      form.employmentStatus !== (employee.EmploymentStatus ?? "")
+        ? form.employmentStatus
+        : undefined,
+    isActive:
+      form.isActive !== String(employee.IsActive)
+        ? form.isActive === "true"
+        : undefined,
+  });
+
+  return {
+    employeeId: employee.EmployeeID,
+    ...updateFields,
+  };
+}
+
+function buildEmployeeExportRows({
+  employees,
+  canSeeSensitive,
+}: {
+  employees: EmployeeListItem[];
+  canSeeSensitive: boolean;
+}) {
+  return employees.map((employee, index) => {
+    const statusMeta = getStatusMeta(employee);
+
+    const baseRow = {
+      STT: index + 1,
+      "Mã nhân viên": employee.EmployeeID,
+      "Họ tên": getEmployeeName(employee),
+      "Giới tính": employee.Gender ?? "",
+      "Ngày sinh": formatDate(employee.DateOfBirth),
+      "Số điện thoại": employee.PhoneNumber ?? "",
+      "Mã phòng ban": employee.DepartmentID ?? "",
+      "Phòng ban": employee.DepartmentName ?? "",
+      "Chức vụ": getPositionLabel(employee.PositionID),
+      "Trạng thái": statusMeta.label,
+      "Ngày tạo": formatDate(employee.CreatedAt),
+    };
+
+    if (!canSeeSensitive) return baseRow;
+
+    return {
+      ...baseRow,
+      "Lương thực nhận": Number(employee.FinalSalary ?? 0),
+      "Phụ cấp": Number(employee.Allowance ?? 0),
+      "Mã số thuế": employee.TaxID ?? "",
+    };
+  });
+}
+
 export default function Employees() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { role } = useRole();
 
   const canSeeSensitive = SENSITIVE_ROLES.includes(role);
+  const canCreateEmployeeRequest = role === "hrStaff" || role === "hrManager";
 
   const [query, setQuery] = useState("");
   const [department, setDepartment] = useState("all");
   const [status, setStatus] = useState("all");
 
+  const [editingEmployee, setEditingEmployee] =
+    useState<EmployeeListItem | null>(null);
+  const [editForm, setEditForm] =
+    useState<EmployeeEditFormState>(EMPTY_EDIT_FORM);
+
+  const [deleteTarget, setDeleteTarget] = useState<EmployeeListItem | null>(
+    null,
+  );
+  const [deleteReason, setDeleteReason] = useState("");
+
   const employeesQuery = useQuery({
     queryKey: employeeKeys.lists(),
     queryFn: employeeService.getAll,
+  });
+
+  const createEmployeeRequestMutation = useMutation({
+    mutationFn: hrRequestService.create,
+
+    onSuccess: async (data) => {
+      toast.success("Đã gửi yêu cầu nhân sự", {
+        description: `Mã yêu cầu: #${data.RequestID}`,
+      });
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["hr-requests"] }),
+        queryClient.invalidateQueries({ queryKey: ["approvals", "pending"] }),
+      ]);
+
+      setEditingEmployee(null);
+      setEditForm(EMPTY_EDIT_FORM);
+      setDeleteTarget(null);
+      setDeleteReason("");
+    },
+
+    onError: (error) => {
+      toast.error("Không thể gửi yêu cầu nhân sự", {
+        description: getApiErrorMessage(
+          error,
+          "Có lỗi xảy ra khi gửi yêu cầu nhân sự.",
+        ),
+      });
+    },
   });
 
   const employees = useMemo(
@@ -160,6 +375,23 @@ export default function Employees() {
           .filter((name): name is string => Boolean(name)),
       ),
     ).sort((a, b) => a.localeCompare(b, "vi"));
+  }, [employees]);
+
+  const departmentOptions = useMemo(() => {
+    const map = new Map<string, string>();
+
+    employees.forEach((employee) => {
+      if (!employee.DepartmentID || !employee.DepartmentName) return;
+
+      map.set(employee.DepartmentID, employee.DepartmentName);
+    });
+
+    return Array.from(map.entries())
+      .map(([departmentId, departmentName]) => ({
+        departmentId,
+        departmentName,
+      }))
+      .sort((a, b) => a.departmentName.localeCompare(b.departmentName, "vi"));
   }, [employees]);
 
   const filteredEmployees = useMemo(() => {
@@ -184,10 +416,141 @@ export default function Employees() {
     });
   }, [department, employees, query, status]);
 
+  const {
+    page: employeePage,
+    pageSize: employeePageSize,
+    paginatedItems: paginatedEmployees,
+    setPage: setEmployeePage,
+    setPageSize: setEmployeePageSize,
+  } = usePagination({
+    items: filteredEmployees,
+    initialPageSize: 10,
+    resetDeps: [query, department, status],
+  });
+
   const resetFilters = () => {
     setQuery("");
     setDepartment("all");
     setStatus("all");
+  };
+
+  const openEditDialog = (employee: EmployeeListItem) => {
+    if (!canCreateEmployeeRequest) {
+      toast.error("Bạn không có quyền tạo yêu cầu cập nhật nhân viên.");
+      return;
+    }
+
+    setEditingEmployee(employee);
+    setEditForm(toEditFormState(employee));
+  };
+
+  const openDeleteDialog = (employee: EmployeeListItem) => {
+    if (!canCreateEmployeeRequest) {
+      toast.error("Bạn không có quyền tạo yêu cầu xóa nhân viên.");
+      return;
+    }
+
+    setDeleteTarget(employee);
+    setDeleteReason("");
+  };
+
+  const closeEditDialog = () => {
+    if (createEmployeeRequestMutation.isPending) return;
+
+    setEditingEmployee(null);
+    setEditForm(EMPTY_EDIT_FORM);
+  };
+
+  const closeDeleteDialog = () => {
+    if (createEmployeeRequestMutation.isPending) return;
+
+    setDeleteTarget(null);
+    setDeleteReason("");
+  };
+
+  const updateEditField = (
+    field: keyof EmployeeEditFormState,
+    value: string,
+  ) => {
+    setEditForm((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  };
+
+  const submitUpdateRequest = () => {
+    if (!editingEmployee) return;
+
+    if (!editForm.fullName.trim()) {
+      toast.error("Họ tên không được để trống.");
+      return;
+    }
+
+    if (!editForm.phoneNumber.trim()) {
+      toast.error("Số điện thoại không được để trống.");
+      return;
+    }
+
+    const updatePayload = buildUpdatePayload(editingEmployee, editForm);
+
+    const updatedFields = Object.keys(updatePayload).filter(
+      (key) => key !== "employeeId",
+    );
+
+    if (updatedFields.length === 0) {
+      toast.info("Không có thay đổi nào để tạo yêu cầu cập nhật.");
+      return;
+    }
+
+    const payload = {
+      requestType: "UPDATE_EMPLOYEE",
+      payload: updatePayload,
+    } satisfies CreateHRRequestPayload;
+
+    createEmployeeRequestMutation.mutate(payload);
+  };
+
+  const submitDeleteRequest = () => {
+    if (!deleteTarget) return;
+
+    const reason = deleteReason.trim();
+
+    if (reason.length < 10) {
+      toast.error("Lý do xóa chưa hợp lệ", {
+        description: "Vui lòng nhập ít nhất 10 ký tự.",
+      });
+      return;
+    }
+
+    const payload = {
+      requestType: "DELETE_EMPLOYEE",
+      payload: {
+        employeeId: deleteTarget.EmployeeID,
+        reason,
+      },
+    } satisfies CreateHRRequestPayload;
+
+    createEmployeeRequestMutation.mutate(payload);
+  };
+
+  const exportEmployees = () => {
+    if (filteredEmployees.length === 0) {
+      toast.info("Không có dữ liệu nhân viên để xuất Excel.");
+      return;
+    }
+
+    exportRowsToExcel({
+      rows: buildEmployeeExportRows({
+        employees: filteredEmployees,
+        canSeeSensitive,
+      }),
+      fileName: "danh-sach-nhan-vien",
+      sheetName: "Danh sách nhân viên",
+    });
+
+    toast.success("Đã xuất Excel danh sách nhân viên", {
+      description: `Đã xuất ${filteredEmployees.length} nhân viên theo bộ lọc hiện tại.`,
+    });
   };
 
   const isFiltering =
@@ -197,7 +560,7 @@ export default function Employees() {
     : filteredEmployees.length;
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="min-w-0 space-y-6 p-6">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">
@@ -219,16 +582,19 @@ export default function Employees() {
           <Button
             variant="outline"
             size="sm"
-            disabled={employeesQuery.isLoading}
+            disabled={employeesQuery.isLoading || filteredEmployees.length === 0}
+            onClick={exportEmployees}
           >
             <Download className="h-4 w-4" />
             Xuất Excel
           </Button>
 
-          <Button size="sm">
-            <Plus className="h-4 w-4" />
-            Thêm nhân viên
-          </Button>
+          {canCreateEmployeeRequest && (
+            <Button size="sm" onClick={() => navigate("/requests")}>
+              <Plus className="h-4 w-4" />
+              Thêm nhân viên
+            </Button>
+          )}
         </div>
       </div>
 
@@ -288,7 +654,7 @@ export default function Employees() {
         </div>
       </Card>
 
-      <Card className="overflow-hidden shadow-sm">
+      <Card className="min-w-0 overflow-hidden shadow-sm">
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
@@ -380,7 +746,7 @@ export default function Employees() {
 
               {!employeesQuery.isLoading &&
                 !employeesQuery.isError &&
-                filteredEmployees.map((employee) => {
+                paginatedEmployees.map((employee) => {
                   const statusMeta = getStatusMeta(employee);
 
                   return (
@@ -460,31 +826,41 @@ export default function Employees() {
                               <TooltipContent>Xem chi tiết</TooltipContent>
                             </Tooltip>
 
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  className="h-8 w-8"
-                                >
-                                  <Pencil className="h-4 w-4" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>Chỉnh sửa</TooltipContent>
-                            </Tooltip>
+                            {canCreateEmployeeRequest && (
+                              <>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      className="h-8 w-8"
+                                      onClick={() => openEditDialog(employee)}
+                                    >
+                                      <Pencil className="h-4 w-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    Tạo yêu cầu cập nhật
+                                  </TooltipContent>
+                                </Tooltip>
 
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>Tạo yêu cầu xóa</TooltipContent>
-                            </Tooltip>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                      onClick={() => openDeleteDialog(employee)}
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    Tạo yêu cầu xóa
+                                  </TooltipContent>
+                                </Tooltip>
+                              </>
+                            )}
                           </div>
                         </TooltipProvider>
                       </TableCell>
@@ -494,7 +870,282 @@ export default function Employees() {
             </TableBody>
           </Table>
         </div>
+
+        {!employeesQuery.isLoading && !employeesQuery.isError && filteredEmployees.length > 0 && (
+          <PaginationControls
+            page={employeePage}
+            pageSize={employeePageSize}
+            totalItems={filteredEmployees.length}
+            onPageChange={setEmployeePage}
+            onPageSizeChange={setEmployeePageSize}
+          />
+        )}
       </Card>
+
+      <Dialog
+        open={Boolean(editingEmployee)}
+        onOpenChange={(open) => {
+          if (!open) closeEditDialog();
+        }}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="h-5 w-5" />
+              Tạo yêu cầu cập nhật nhân viên
+            </DialogTitle>
+            <DialogDescription>
+              Yêu cầu sẽ được gửi tới Giám đốc phê duyệt. Nhân viên chỉ được cập
+              nhật sau khi request được duyệt.
+            </DialogDescription>
+          </DialogHeader>
+
+          {editingEmployee && (
+            <div className="grid gap-4 py-2 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Mã nhân viên</Label>
+                <Input value={editingEmployee.EmployeeID} disabled />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Họ tên</Label>
+                <Input
+                  value={editForm.fullName}
+                  onChange={(event) =>
+                    updateEditField("fullName", event.target.value)
+                  }
+                  disabled={createEmployeeRequestMutation.isPending}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Giới tính</Label>
+                <Select
+                  value={editForm.gender}
+                  onValueChange={(value) => updateEditField("gender", value)}
+                  disabled={createEmployeeRequestMutation.isPending}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Chọn giới tính" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {GENDER_OPTIONS.map((gender) => (
+                      <SelectItem key={gender.value} value={gender.value}>
+                        {gender.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Ngày sinh</Label>
+                <Input
+                  type="date"
+                  value={editForm.dateOfBirth}
+                  onChange={(event) =>
+                    updateEditField("dateOfBirth", event.target.value)
+                  }
+                  disabled={createEmployeeRequestMutation.isPending}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Số điện thoại</Label>
+                <Input
+                  value={editForm.phoneNumber}
+                  onChange={(event) =>
+                    updateEditField("phoneNumber", event.target.value)
+                  }
+                  disabled={createEmployeeRequestMutation.isPending}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Phòng ban</Label>
+                <Select
+                  value={editForm.departmentId}
+                  onValueChange={(value) =>
+                    updateEditField("departmentId", value)
+                  }
+                  disabled={createEmployeeRequestMutation.isPending}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Chọn phòng ban" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {departmentOptions.map((item) => (
+                      <SelectItem
+                        key={item.departmentId}
+                        value={item.departmentId}
+                      >
+                        {item.departmentName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Chức vụ</Label>
+                <Select
+                  value={editForm.positionId}
+                  onValueChange={(value) =>
+                    updateEditField("positionId", value)
+                  }
+                  disabled={createEmployeeRequestMutation.isPending}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Chọn chức vụ" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {POSITION_OPTIONS.map((position) => (
+                      <SelectItem key={position.id} value={String(position.id)}>
+                        {position.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Trạng thái làm việc</Label>
+                <Select
+                  value={editForm.employmentStatus}
+                  onValueChange={(value) =>
+                    updateEditField("employmentStatus", value)
+                  }
+                  disabled={createEmployeeRequestMutation.isPending}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Chọn trạng thái" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {EMPLOYMENT_STATUS_OPTIONS.map((item) => (
+                      <SelectItem key={item.value} value={item.value}>
+                        {item.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Tình trạng tài khoản</Label>
+                <Select
+                  value={editForm.isActive}
+                  onValueChange={(value) => updateEditField("isActive", value)}
+                  disabled={createEmployeeRequestMutation.isPending}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Chọn tình trạng" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="true">Đang hoạt động</SelectItem>
+                    <SelectItem value="false">Vô hiệu hóa</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={closeEditDialog}
+              disabled={createEmployeeRequestMutation.isPending}
+            >
+              Hủy
+            </Button>
+
+            <Button
+              onClick={submitUpdateRequest}
+              disabled={createEmployeeRequestMutation.isPending}
+            >
+              {createEmployeeRequestMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
+              Gửi yêu cầu cập nhật
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => {
+          if (!open) closeDeleteDialog();
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-destructive" />
+              Tạo yêu cầu xóa nhân viên?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Thao tác này không xóa trực tiếp nhân viên. Hệ thống sẽ tạo yêu
+              cầu xóa và chờ Giám đốc phê duyệt.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          {deleteTarget && (
+            <div className="space-y-4">
+              <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm">
+                <p>
+                  <span className="text-muted-foreground">Mã nhân viên:</span>{" "}
+                  <span className="font-mono font-semibold">
+                    {deleteTarget.EmployeeID}
+                  </span>
+                </p>
+                <p>
+                  <span className="text-muted-foreground">Họ tên:</span>{" "}
+                  <span className="font-semibold">
+                    {deleteTarget.FullName ?? "—"}
+                  </span>
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Lý do xóa / vô hiệu hóa *</Label>
+                <Textarea
+                  value={deleteReason}
+                  onChange={(event) => setDeleteReason(event.target.value)}
+                  placeholder="Nhập lý do xóa/vô hiệu hóa nhân viên..."
+                  rows={4}
+                  disabled={createEmployeeRequestMutation.isPending}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Tối thiểu 10 ký tự.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              disabled={createEmployeeRequestMutation.isPending}
+            >
+              Hủy
+            </AlertDialogCancel>
+
+            <AlertDialogAction
+              onClick={submitDeleteRequest}
+              disabled={createEmployeeRequestMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {createEmployeeRequestMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
+              Gửi yêu cầu xóa
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
