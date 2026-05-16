@@ -16,6 +16,9 @@ import {
   Users,
 } from "lucide-react";
 
+import { Link } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useRole } from "@/context/RoleContext";
@@ -230,6 +233,252 @@ function EmptyCard({ message }: { message: string }) {
   return (
     <div className="px-6 py-8 text-center text-sm text-muted-foreground">
       {message}
+    </div>
+  );
+}
+
+type EmployeeDashboardProps = {
+  fullName: string;
+  roleLabel: string;
+  visibleEmployeeCount: number;
+  activeEmployeeCount: number;
+  isLoadingEmployees: boolean;
+};
+
+function EmployeeDashboardView({
+  fullName,
+  roleLabel,
+  visibleEmployeeCount,
+  activeEmployeeCount,
+  isLoadingEmployees,
+}: EmployeeDashboardProps) {
+  return (
+    <div className="space-y-6">
+      <section className="relative overflow-hidden rounded-3xl border border-border bg-gradient-to-br from-primary/10 via-card to-muted/40 p-6 shadow-sm">
+        <div className="absolute right-6 top-6 hidden h-32 w-32 rounded-full bg-primary/10 blur-3xl md:block" />
+
+        <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+          <div className="max-w-2xl">
+            <Badge className="mb-4 rounded-full bg-primary/10 text-primary hover:bg-primary/10">
+              Không gian nhân viên
+            </Badge>
+
+            <h1 className="text-3xl font-bold tracking-tight text-foreground">
+              Xin chào, {fullName} 👋
+            </h1>
+
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">
+              Bạn đang đăng nhập với vai trò{" "}
+              <span className="font-semibold text-foreground">{roleLabel}</span>
+              . Tại đây bạn có thể xem hồ sơ cá nhân, kiểm tra quyền truy cập và
+              theo dõi danh sách nhân viên trong phạm vi được cấp.
+            </p>
+
+            <div className="mt-5 flex flex-wrap gap-3">
+              <Button asChild>
+                <Link to="/profile">
+                  <UserCircle className="h-4 w-4" />
+                  Xem hồ sơ cá nhân
+                </Link>
+              </Button>
+
+              <Button asChild variant="outline">
+                <Link to="/employees">
+                  <Users className="h-4 w-4" />
+                  Xem danh sách nhân viên
+                </Link>
+              </Button>
+            </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2 lg:w-[420px]">
+            <Card className="rounded-2xl border-border bg-card/80 shadow-sm">
+              <CardContent className="p-5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                      Nhân viên hiển thị
+                    </p>
+                    <p className="mt-2 text-3xl font-bold text-foreground">
+                      {isLoadingEmployees ? "..." : visibleEmployeeCount}
+                    </p>
+                  </div>
+
+                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                    <Users className="h-5 w-5" />
+                  </div>
+                </div>
+
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Theo phạm vi quyền truy cập hiện tại.
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card className="rounded-2xl border-border bg-card/80 shadow-sm">
+              <CardContent className="p-5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                      Đang hoạt động
+                    </p>
+                    <p className="mt-2 text-3xl font-bold text-foreground">
+                      {isLoadingEmployees ? "..." : activeEmployeeCount}
+                    </p>
+                  </div>
+
+                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                    <CheckCircle2 className="h-5 w-5" />
+                  </div>
+                </div>
+
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Nhân viên còn trạng thái hoạt động.
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-3">
+        <Card className="rounded-2xl border-border shadow-sm lg:col-span-2">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ShieldCheck className="h-5 w-5 text-primary" />
+              Trạng thái quyền truy cập
+            </CardTitle>
+          </CardHeader>
+
+          <CardContent className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-2xl border border-border bg-muted/30 p-4">
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                  <ShieldCheck className="h-4 w-4" />
+                </div>
+
+                <div>
+                  <p className="text-sm font-semibold text-foreground">
+                    Phân quyền đang hoạt động
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    Hệ thống chỉ hiển thị các chức năng phù hợp với vai trò của
+                    bạn.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-border bg-muted/30 p-4">
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                  <FileText className="h-4 w-4" />
+                </div>
+
+                <div>
+                  <p className="text-sm font-semibold text-foreground">
+                    Dữ liệu được giới hạn
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    Các thông tin nhạy cảm như lương, phê duyệt và audit log
+                    không khả dụng với vai trò nhân viên.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-border bg-muted/30 p-4 sm:col-span-2">
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                  <UserCircle className="h-4 w-4" />
+                </div>
+
+                <div>
+                  <p className="text-sm font-semibold text-foreground">
+                    Hồ sơ cá nhân
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    Bạn có thể xem và cập nhật một số thông tin cá nhân cơ bản.
+                    Các trường quan trọng cần được xử lý bởi vai trò có thẩm
+                    quyền.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-2xl border-border shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-base">Truy cập nhanh</CardTitle>
+          </CardHeader>
+
+          <CardContent className="space-y-3">
+            <Button
+              asChild
+              variant="outline"
+              className="h-auto w-full justify-between rounded-2xl p-4"
+            >
+              <Link to="/profile">
+                <span className="flex items-center gap-3">
+                  <UserCircle className="h-5 w-5 text-primary" />
+                  <span className="text-left">
+                    <span className="block text-sm font-semibold">
+                      Hồ sơ của tôi
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      Xem và cập nhật thông tin cá nhân
+                    </span>
+                  </span>
+                </span>
+                <ArrowUpRight className="h-4 w-4" />
+              </Link>
+            </Button>
+
+            <Button
+              asChild
+              variant="outline"
+              className="h-auto w-full justify-between rounded-2xl p-4"
+            >
+              <Link to="/employees">
+                <span className="flex items-center gap-3">
+                  <Users className="h-5 w-5 text-primary" />
+                  <span className="text-left">
+                    <span className="block text-sm font-semibold">
+                      Danh sách nhân viên
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      Xem nhân viên trong phạm vi được cấp
+                    </span>
+                  </span>
+                </span>
+                <ArrowUpRight className="h-4 w-4" />
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </section>
+
+      <Card className="rounded-2xl border-border bg-card shadow-sm">
+        <CardContent className="p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+              <ShieldCheck className="h-5 w-5" />
+            </div>
+
+            <div>
+              <p className="text-sm font-semibold text-foreground">
+                Lưu ý bảo mật
+              </p>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                Tài khoản nhân viên chỉ được truy cập các dữ liệu cần thiết cho
+                phạm vi công việc. Nếu thông tin hồ sơ chưa chính xác, hãy cập
+                nhật tại trang hồ sơ hoặc liên hệ HR để được hỗ trợ.
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -460,6 +709,22 @@ export default function Dashboard() {
   const requestListTitle = canReadPendingApprovals
     ? "Yêu cầu chờ phê duyệt"
     : "Yêu cầu nhân sự gần đây";
+
+  if (role === "employee") {
+    return (
+      <div className="min-w-0 space-y-6 p-6">
+        <EmployeeDashboardView
+          fullName={fullName || username || "Nhân viên"}
+          roleLabel={ROLE_LABELS[role]}
+          visibleEmployeeCount={employees.length}
+          activeEmployeeCount={
+            employees.filter((employee) => employee.IsActive).length
+          }
+          isLoadingEmployees={employeesQuery.isLoading}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="min-w-0 space-y-6">

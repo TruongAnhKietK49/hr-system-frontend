@@ -11,7 +11,7 @@ export type CreateDepartmentPayload = {
 
 export type UpdateDepartmentPayload = {
   departmentName?: string;
-  managerId?: string | null;
+  managerEmployeeId?: string | null;
 };
 
 export type ManagerCandidate = {
