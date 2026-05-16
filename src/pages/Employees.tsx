@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Check,
+  ChevronsUpDown,
   Download,
   Eye,
   Filter,
@@ -72,6 +74,20 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 const SENSITIVE_ROLES: Role[] = ["director", "manager", "finance"];
 
@@ -304,6 +320,96 @@ function buildEmployeeExportRows({
       "Mã số thuế": employee.TaxID ?? "",
     };
   });
+}
+
+type DepartmentComboboxOption = {
+  departmentId: string;
+  departmentName: string;
+};
+
+type DepartmentComboboxProps = {
+  options: DepartmentComboboxOption[];
+  value: string;
+  disabled?: boolean;
+  placeholder?: string;
+  searchPlaceholder?: string;
+  emptyMessage?: string;
+  onChange: (value: string) => void;
+};
+
+function DepartmentCombobox({
+  options,
+  value,
+  disabled = false,
+  placeholder = "Chọn phòng ban",
+  searchPlaceholder = "Tìm phòng ban...",
+  emptyMessage = "Không tìm thấy phòng ban.",
+  onChange,
+}: DepartmentComboboxProps) {
+  const [open, setOpen] = useState(false);
+
+  const selectedDepartment = options.find(
+    (item) => item.departmentId === value,
+  );
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          disabled={disabled}
+          className={cn(
+            "w-full justify-between bg-background font-normal",
+            !selectedDepartment && "text-muted-foreground",
+          )}
+        >
+          <span className="truncate">
+            {selectedDepartment?.departmentName ?? placeholder}
+          </span>
+
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+
+      <PopoverContent
+        align="start"
+        className="w-[--radix-popover-trigger-width] p-0"
+      >
+        <Command>
+          <CommandInput placeholder={searchPlaceholder} />
+
+          <CommandList>
+            <CommandEmpty>{emptyMessage}</CommandEmpty>
+
+            <CommandGroup>
+              {options.map((item) => (
+                <CommandItem
+                  key={item.departmentId}
+                  value={`${item.departmentName} ${item.departmentId}`}
+                  onSelect={() => {
+                    onChange(item.departmentId);
+                    setOpen(false);
+                  }}
+                >
+                  <Check
+                    className={cn(
+                      "mr-2 h-4 w-4",
+                      value === item.departmentId ? "opacity-100" : "opacity-0",
+                    )}
+                  />
+
+                  <span className="truncate">{item.departmentName}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 export default function Employees() {
@@ -582,7 +688,9 @@ export default function Employees() {
           <Button
             variant="outline"
             size="sm"
-            disabled={employeesQuery.isLoading || filteredEmployees.length === 0}
+            disabled={
+              employeesQuery.isLoading || filteredEmployees.length === 0
+            }
             onClick={exportEmployees}
           >
             <Download className="h-4 w-4" />
@@ -871,15 +979,17 @@ export default function Employees() {
           </Table>
         </div>
 
-        {!employeesQuery.isLoading && !employeesQuery.isError && filteredEmployees.length > 0 && (
-          <PaginationControls
-            page={employeePage}
-            pageSize={employeePageSize}
-            totalItems={filteredEmployees.length}
-            onPageChange={setEmployeePage}
-            onPageSizeChange={setEmployeePageSize}
-          />
-        )}
+        {!employeesQuery.isLoading &&
+          !employeesQuery.isError &&
+          filteredEmployees.length > 0 && (
+            <PaginationControls
+              page={employeePage}
+              pageSize={employeePageSize}
+              totalItems={filteredEmployees.length}
+              onPageChange={setEmployeePage}
+              onPageSizeChange={setEmployeePageSize}
+            />
+          )}
       </Card>
 
       <Dialog
@@ -963,27 +1073,14 @@ export default function Employees() {
 
               <div className="space-y-2">
                 <Label>Phòng ban</Label>
-                <Select
+                <DepartmentCombobox
+                  options={departmentOptions}
                   value={editForm.departmentId}
-                  onValueChange={(value) =>
-                    updateEditField("departmentId", value)
-                  }
                   disabled={createEmployeeRequestMutation.isPending}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Chọn phòng ban" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {departmentOptions.map((item) => (
-                      <SelectItem
-                        key={item.departmentId}
-                        value={item.departmentId}
-                      >
-                        {item.departmentName}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  placeholder="Chọn phòng ban"
+                  searchPlaceholder="Tìm phòng ban..."
+                  onChange={(value) => updateEditField("departmentId", value)}
+                />
               </div>
 
               <div className="space-y-2">

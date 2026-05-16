@@ -48,6 +48,18 @@ const POSITION_LABELS: Record<number, string> = {
   3: "Giám đốc",
 };
 
+const GENDER_LABELS: Record<string, string> = {
+  Male: "Nam",
+  Female: "Nữ",
+  Other: "Khác",
+};
+
+const EMPLOYMENT_STATUS_LABELS: Record<string, string> = {
+  ACTIVE: "Đang làm việc",
+  INACTIVE: "Đã nghỉ việc",
+  ON_LEAVE: "Đang nghỉ phép",
+};
+
 type ProfileFormState = {
   fullName: string;
   gender: string;
@@ -62,6 +74,19 @@ const DEFAULT_FORM_STATE: ProfileFormState = {
   phoneNumber: "",
 };
 
+const PHONE_RULE_MESSAGE =
+  "Số điện thoại phải gồm đúng 10 chữ số và bắt đầu bằng số 0.";
+
+const VIETNAM_PHONE_REGEX = /^0\d{9}$/;
+
+function normalizePhoneNumber(value: string) {
+  return value.replace(/\D/g, "").slice(0, 10);
+}
+
+function isValidPhoneNumber(value: string) {
+  return VIETNAM_PHONE_REGEX.test(value);
+}
+
 type PasswordFormState = {
   currentPassword: string;
   newPassword: string;
@@ -74,9 +99,29 @@ const DEFAULT_PASSWORD_FORM_STATE: PasswordFormState = {
   confirmPassword: "",
 };
 
+const PASSWORD_RULE_MESSAGE =
+  "Mật khẩu mới phải có ít nhất 8 ký tự, gồm chữ hoa, chữ thường, số và ký tự đặc biệt.";
+
+const STRONG_PASSWORD_REGEX =
+  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/;
+
+function isStrongPassword(password: string) {
+  return STRONG_PASSWORD_REGEX.test(password);
+}
+
 function getPositionLabel(positionId?: number | null) {
   if (!positionId) return "—";
   return POSITION_LABELS[positionId] ?? `Position #${positionId}`;
+}
+
+function getGenderLabel(gender?: string | null) {
+  if (!gender) return "—";
+  return GENDER_LABELS[gender] ?? gender;
+}
+
+function getEmploymentStatusLabel(status?: string | null) {
+  if (!status) return "—";
+  return EMPLOYMENT_STATUS_LABELS[status] ?? status;
 }
 
 function formatDate(value?: string | null) {
@@ -283,8 +328,8 @@ export default function Profile() {
       return;
     }
 
-    if (newPassword.length < 6) {
-      toast.error("Mật khẩu mới phải có ít nhất 6 ký tự.");
+    if (!isStrongPassword(newPassword)) {
+      toast.error(PASSWORD_RULE_MESSAGE);
       return;
     }
 
@@ -332,9 +377,13 @@ export default function Profile() {
       toast.error("Họ tên không được để trống.");
       return;
     }
-
     if (!form.phoneNumber.trim()) {
       toast.error("Số điện thoại không được để trống.");
+      return;
+    }
+
+    if (!isValidPhoneNumber(form.phoneNumber.trim())) {
+      toast.error(PHONE_RULE_MESSAGE);
       return;
     }
 
@@ -428,7 +477,7 @@ export default function Profile() {
               <Badge>{ROLE_LABELS[role]}</Badge>
               <Badge variant="outline" className="gap-1">
                 <BadgeCheck className="h-3 w-3" />
-                {profile.IsActive ? "Đang hoạt động" : "Không hoạt động"}
+                {profile.IsActive ? "Đang hoạt động" : "Đã vô hiệu hóa"}
               </Badge>
               <Badge variant="outline" className="font-mono">
                 {profile.EmployeeID}
@@ -474,10 +523,11 @@ export default function Profile() {
                 label="Ngày sinh"
                 value={formatDate(profile.DateOfBirth)}
               />
-              <Field label="Giới tính" value={profile.Gender ?? "—"} />
+              <Field label="Giới tính" value={getGenderLabel(profile.Gender)} />
+
               <Field
                 label="Trạng thái làm việc"
-                value={profile.EmploymentStatus ?? "—"}
+                value={getEmploymentStatusLabel(profile.EmploymentStatus)}
               />
 
               <div className="rounded-lg border border-amber-300/60 bg-amber-50/60 p-4 text-sm dark:bg-amber-950/10 md:col-span-2">
@@ -544,9 +594,16 @@ export default function Profile() {
                 <Label htmlFor="phoneNumber">Số điện thoại</Label>
                 <Input
                   id="phoneNumber"
+                  type="tel"
+                  inputMode="numeric"
+                  maxLength={10}
+                  placeholder="Ví dụ: 0901000009"
                   value={form.phoneNumber}
                   onChange={(event) =>
-                    updateField("phoneNumber", event.target.value)
+                    updateField(
+                      "phoneNumber",
+                      normalizePhoneNumber(event.target.value),
+                    )
                   }
                   disabled={isSubmitting}
                 />
@@ -617,6 +674,7 @@ export default function Profile() {
               id="newPassword"
               type="password"
               autoComplete="new-password"
+              placeholder="Ít nhất 8 ký tự, có chữ hoa, số, ký tự đặc biệt"
               value={passwordForm.newPassword}
               onChange={(event) =>
                 updatePasswordField("newPassword", event.target.value)
@@ -645,8 +703,9 @@ export default function Profile() {
               Lưu ý bảo mật
             </div>
             <p className="mt-1">
-              Mật khẩu mới nên khác mật khẩu hiện tại và có tối thiểu 6 ký tự.
-              Không chia sẻ mật khẩu cho người khác.
+              Mật khẩu mới phải có ít nhất 8 ký tự, bao gồm chữ hoa, chữ thường,
+              số và ký tự đặc biệt. Không sử dụng lại mật khẩu hiện tại hoặc
+              chia sẻ mật khẩu cho người khác.
             </p>
           </div>
 

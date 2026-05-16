@@ -4,9 +4,9 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { format } from "date-fns";
-import { vi } from "date-fns/locale";
 import {
-  CalendarIcon,
+  Check,
+  ChevronsUpDown,
   Info,
   Loader2,
   Pencil,
@@ -18,7 +18,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { cn } from "@/lib/utils";
 import { getApiErrorMessage } from "@/lib/getApiErrorMessage";
 import { hrRequestService } from "@/services/hrRequestService";
 import { masterDataService } from "@/services/masterDataService";
@@ -26,6 +25,23 @@ import {
   CreateHRRequestPayload,
   UpdateEmployeePayload,
 } from "@/types/hrRequest";
+
+import { cn } from "@/lib/utils";
+
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -41,11 +57,6 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -165,12 +176,139 @@ function toApiDate(date: Date) {
   return format(date, "yyyy-MM-dd");
 }
 
+const MIN_BIRTH_DATE = "1940-01-01";
+const MAX_BIRTH_DATE = format(new Date(), "yyyy-MM-dd");
+
+function toDateInputValue(date?: Date) {
+  return date ? format(date, "yyyy-MM-dd") : "";
+}
+
+function fromDateInputValue(value: string) {
+  return value ? new Date(`${value}T00:00:00`) : undefined;
+}
+
 function removeEmptyFields<T extends Record<string, unknown>>(payload: T) {
   return Object.fromEntries(
     Object.entries(payload).filter(([, value]) => {
       return value !== undefined && value !== null && value !== "";
     }),
   ) as Partial<T>;
+}
+
+type DepartmentOption = {
+  DepartmentID: string;
+  DepartmentName: string;
+};
+
+type DepartmentComboboxProps = {
+  departments: DepartmentOption[];
+  value?: string;
+  placeholder?: string;
+  searchPlaceholder?: string;
+  emptyMessage?: string;
+  disabled?: boolean;
+  allowClear?: boolean;
+  onChange: (value: string) => void;
+};
+
+function DepartmentCombobox({
+  departments,
+  value,
+  placeholder = "Chọn phòng ban",
+  searchPlaceholder = "Tìm phòng ban...",
+  emptyMessage = "Không tìm thấy phòng ban.",
+  disabled = false,
+  allowClear = false,
+  onChange,
+}: DepartmentComboboxProps) {
+  const [open, setOpen] = useState(false);
+
+  const selectedDepartment = departments.find(
+    (department) => department.DepartmentID === value,
+  );
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          disabled={disabled}
+          className={cn(
+            "w-full justify-between bg-background font-normal",
+            !selectedDepartment && "text-muted-foreground",
+          )}
+        >
+          <span className="truncate">
+            {selectedDepartment?.DepartmentName ?? placeholder}
+          </span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+
+      <PopoverContent
+        align="start"
+        className="w-[--radix-popover-trigger-width] p-0"
+      >
+        <Command>
+          <CommandInput placeholder={searchPlaceholder} />
+
+          <CommandList>
+            <CommandEmpty>{emptyMessage}</CommandEmpty>
+
+            <CommandGroup>
+              {allowClear && (
+                <CommandItem
+                  value="__clear_department__"
+                  onSelect={() => {
+                    onChange("");
+                    setOpen(false);
+                  }}
+                >
+                  <Check
+                    className={cn(
+                      "mr-2 h-4 w-4",
+                      !value ? "opacity-100" : "opacity-0",
+                    )}
+                  />
+                  Không thay đổi
+                </CommandItem>
+              )}
+
+              {departments.map((department) => (
+                <CommandItem
+                  key={department.DepartmentID}
+                  value={`${department.DepartmentName} ${department.DepartmentID}`}
+                  onSelect={() => {
+                    if (allowClear && value === department.DepartmentID) {
+                      onChange("");
+                    } else {
+                      onChange(department.DepartmentID);
+                    }
+
+                    setOpen(false);
+                  }}
+                >
+                  <Check
+                    className={cn(
+                      "mr-2 h-4 w-4",
+                      value === department.DepartmentID
+                        ? "opacity-100"
+                        : "opacity-0",
+                    )}
+                  />
+
+                  <span className="truncate">{department.DepartmentName}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 export default function Requests() {
@@ -435,43 +573,22 @@ export default function Requests() {
                     control={createForm.control}
                     name="dateOfBirth"
                     render={({ field }) => (
-                      <FormItem className="flex flex-col">
+                      <FormItem>
                         <FormLabel>Ngày sinh *</FormLabel>
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <FormControl>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                disabled={isSubmitting}
-                                className={cn(
-                                  "pl-3 text-left font-normal",
-                                  !field.value && "text-muted-foreground",
-                                )}
-                              >
-                                {field.value
-                                  ? format(field.value, "dd/MM/yyyy", {
-                                      locale: vi,
-                                    })
-                                  : "Chọn ngày sinh"}
-                                <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                              </Button>
-                            </FormControl>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                              mode="single"
-                              selected={field.value}
-                              onSelect={field.onChange}
-                              disabled={(date) =>
-                                date > new Date() ||
-                                date < new Date("1940-01-01")
-                              }
-                              initialFocus
-                              className="p-3 pointer-events-auto"
-                            />
-                          </PopoverContent>
-                        </Popover>
+                        <FormControl>
+                          <Input
+                            type="date"
+                            min={MIN_BIRTH_DATE}
+                            max={MAX_BIRTH_DATE}
+                            value={toDateInputValue(field.value)}
+                            onChange={(event) => {
+                              field.onChange(
+                                fromDateInputValue(event.target.value),
+                              );
+                            }}
+                            disabled={isSubmitting}
+                          />
+                        </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -520,27 +637,16 @@ export default function Requests() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Phòng ban *</FormLabel>
-                        <Select
-                          onValueChange={field.onChange}
-                          value={field.value}
-                          disabled={isSubmitting || isLoadingMasterData}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Chọn phòng ban" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {departments.map((department) => (
-                              <SelectItem
-                                key={department.DepartmentID}
-                                value={department.DepartmentID}
-                              >
-                                {department.DepartmentName}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <FormControl>
+                          <DepartmentCombobox
+                            departments={departments}
+                            value={field.value}
+                            placeholder="Chọn phòng ban"
+                            searchPlaceholder="Tìm phòng ban..."
+                            disabled={isSubmitting || isLoadingMasterData}
+                            onChange={field.onChange}
+                          />
+                        </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -789,43 +895,22 @@ export default function Requests() {
                     control={updateForm.control}
                     name="dateOfBirth"
                     render={({ field }) => (
-                      <FormItem className="flex flex-col">
+                      <FormItem>
                         <FormLabel>Ngày sinh mới</FormLabel>
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <FormControl>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                disabled={isSubmitting}
-                                className={cn(
-                                  "pl-3 text-left font-normal",
-                                  !field.value && "text-muted-foreground",
-                                )}
-                              >
-                                {field.value
-                                  ? format(field.value, "dd/MM/yyyy", {
-                                      locale: vi,
-                                    })
-                                  : "Không thay đổi"}
-                                <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                              </Button>
-                            </FormControl>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                              mode="single"
-                              selected={field.value}
-                              onSelect={field.onChange}
-                              disabled={(date) =>
-                                date > new Date() ||
-                                date < new Date("1940-01-01")
-                              }
-                              initialFocus
-                              className="p-3 pointer-events-auto"
-                            />
-                          </PopoverContent>
-                        </Popover>
+                        <FormControl>
+                          <Input
+                            type="date"
+                            min={MIN_BIRTH_DATE}
+                            max={MAX_BIRTH_DATE}
+                            value={toDateInputValue(field.value)}
+                            onChange={(event) => {
+                              field.onChange(
+                                fromDateInputValue(event.target.value),
+                              );
+                            }}
+                            disabled={isSubmitting}
+                          />
+                        </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -855,27 +940,19 @@ export default function Requests() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Phòng ban mới</FormLabel>
-                        <Select
-                          onValueChange={field.onChange}
-                          value={field.value}
-                          disabled={isSubmitting || departmentsQuery.isLoading}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Không thay đổi" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {departments.map((department) => (
-                              <SelectItem
-                                key={department.DepartmentID}
-                                value={department.DepartmentID}
-                              >
-                                {department.DepartmentName}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <FormControl>
+                          <DepartmentCombobox
+                            departments={departments}
+                            value={field.value}
+                            placeholder="Không thay đổi"
+                            searchPlaceholder="Tìm phòng ban..."
+                            disabled={
+                              isSubmitting || departmentsQuery.isLoading
+                            }
+                            allowClear
+                            onChange={field.onChange}
+                          />
+                        </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -1006,10 +1083,14 @@ export default function Requests() {
             <CardContent>
               <Alert className="mb-6 border-amber-300 bg-amber-50 text-amber-900">
                 <ShieldAlert className="h-4 w-4" />
-                <AlertTitle className="text-sm">Hành động nhạy cảm</AlertTitle>
+                <AlertTitle className="text-sm">
+                  Lưu ý trước khi xóa nhân viên
+                </AlertTitle>
                 <AlertDescription className="text-xs">
-                  Backend đang xử lý xóa nhân viên theo hướng soft delete: vô
-                  hiệu hóa Employee và Account, không xóa vật lý dữ liệu.
+                  Nhân viên sẽ được chuyển sang trạng thái ngừng hoạt động và
+                  tài khoản đăng nhập sẽ bị vô hiệu hóa. Dữ liệu hồ sơ, lương và
+                  lịch sử yêu cầu liên quan vẫn được giữ lại để phục vụ tra cứu
+                  và đối soát sau này.
                 </AlertDescription>
               </Alert>
 

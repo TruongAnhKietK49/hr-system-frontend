@@ -108,6 +108,19 @@ const departmentSchema = z.object({
 });
 
 type DepartmentFormValues = z.infer<typeof departmentSchema>;
+type DepartmentSortOrder = "none" | "az" | "za";
+
+const POSITION_LABEL_BY_ID: Record<number, string> = {
+  3: "Giám đốc",
+  2: "Trưởng phòng",
+  1: "Nhân viên",
+};
+
+function getPositionNameById(positionId?: number | null) {
+  if (!positionId) return null;
+
+  return POSITION_LABEL_BY_ID[positionId] ?? `Chức vụ #${positionId}`;
+}
 
 function getManagerLabel(
   managerId: string | null | undefined,
@@ -152,7 +165,7 @@ function toUpdatePayload(
 ): UpdateDepartmentPayload {
   return {
     departmentName: values.departmentName.trim(),
-    managerId:
+    managerEmployeeId:
       values.managerId && values.managerId !== NONE ? values.managerId : null,
   };
 }
@@ -164,6 +177,8 @@ export default function Departments() {
   const canManageDepartments = role === "director" || role === "hrManager";
 
   const [query, setQuery] = useState("");
+  const [showVacantOnly, setShowVacantOnly] = useState(false);
+  const [sortOrder, setSortOrder] = useState<DepartmentSortOrder>("none");
   const [formOpen, setFormOpen] = useState(false);
   const [editingDepartment, setEditingDepartment] =
     useState<DepartmentRecord | null>(null);
@@ -200,14 +215,6 @@ export default function Departments() {
     queryFn: employeeService.getAll,
   });
 
-  const managerCandidatesQuery = useQuery({
-    queryKey: departmentKeys.managerCandidates(debouncedManagerSearch),
-    queryFn: () =>
-      departmentService.searchManagerCandidates(debouncedManagerSearch, 20),
-    enabled: formOpen && canManageDepartments,
-    staleTime: 30_000,
-  });
-
   const departments = useMemo(
     () => departmentsQuery.data ?? [],
     [departmentsQuery.data],
@@ -218,10 +225,44 @@ export default function Departments() {
     [employeesQuery.data],
   );
 
-  const managerCandidates = useMemo(
-    () => managerCandidatesQuery.data ?? [],
-    [managerCandidatesQuery.data],
-  );
+  const managerCandidates = useMemo(() => {
+    const normalizedSearch = debouncedManagerSearch.toLowerCase();
+
+    return employees
+      .filter((employee) => employee.IsActive)
+      .filter((employee) => {
+        const positionName = getPositionNameById(employee.PositionID);
+
+        if (!normalizedSearch) return true;
+
+        return [
+          employee.EmployeeID,
+          employee.FullName,
+          employee.DepartmentID,
+          employee.DepartmentName,
+          positionName,
+        ]
+          .filter(Boolean)
+          .some((value) =>
+            String(value).toLowerCase().includes(normalizedSearch),
+          );
+      })
+      .slice(0, 20)
+      .map(
+        (employee): ManagerCandidate => ({
+          EmployeeID: employee.EmployeeID,
+          FullName: employee.FullName ?? null,
+          DepartmentID: employee.DepartmentID ?? null,
+          DepartmentName: employee.DepartmentName ?? null,
+          PositionID: employee.PositionID ?? null,
+          PositionName: getPositionNameById(employee.PositionID),
+          IsActive: employee.IsActive,
+          IsManagingDepartment: departments.some(
+            (department) => department.ManagerID === employee.EmployeeID,
+          ),
+        }),
+      );
+  }, [debouncedManagerSearch, departments, employees]);
 
   const employeesById = useMemo(() => {
     return new Map(
@@ -247,9 +288,15 @@ export default function Departments() {
   const filteredDepartments = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
-    if (!normalizedQuery) return departments;
+    const filtered = departments.filter((department) => {
+      if (showVacantOnly && department.ManagerID) {
+        return false;
+      }
 
-    return departments.filter((department) => {
+      if (!normalizedQuery) {
+        return true;
+      }
+
       const managerLabel = getManagerLabel(department.ManagerID, employeesById);
 
       return [
@@ -261,7 +308,19 @@ export default function Departments() {
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(normalizedQuery));
     });
-  }, [departments, employeesById, query]);
+
+    if (sortOrder === "none") {
+      return filtered;
+    }
+
+    return [...filtered].sort((a, b) => {
+      const result = a.DepartmentName.localeCompare(b.DepartmentName, "vi", {
+        sensitivity: "base",
+      });
+
+      return sortOrder === "az" ? result : -result;
+    });
+  }, [departments, employeesById, query, showVacantOnly, sortOrder]);
 
   const {
     page: departmentPage,
@@ -272,7 +331,7 @@ export default function Departments() {
   } = usePagination({
     items: filteredDepartments,
     initialPageSize: 10,
-    resetDeps: [query],
+    resetDeps: [query, showVacantOnly, sortOrder],
   });
 
   const totals = useMemo(() => {
@@ -536,14 +595,47 @@ export default function Departments() {
       </div>
 
       <Card className="p-4 shadow-sm">
-        <div className="relative max-w-md">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Tìm theo mã, tên phòng ban, trưởng phòng"
-            className="pl-9"
-          />
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="relative w-full lg:max-w-md">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Tìm theo mã, tên phòng ban, trưởng phòng"
+              className="pl-9"
+            />
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant={showVacantOnly ? "default" : "outline"}
+              onClick={() => setShowVacantOnly((current) => !current)}
+            >
+              <AlertTriangle className="h-4 w-4" />
+              Chưa có trưởng phòng
+            </Button>
+
+            <Button
+              type="button"
+              variant={sortOrder === "az" ? "default" : "outline"}
+              onClick={() =>
+                setSortOrder((current) => (current === "az" ? "none" : "az"))
+              }
+            >
+              A → Z
+            </Button>
+
+            <Button
+              type="button"
+              variant={sortOrder === "za" ? "default" : "outline"}
+              onClick={() =>
+                setSortOrder((current) => (current === "za" ? "none" : "za"))
+              }
+            >
+              Z → A
+            </Button>
+          </div>
         </div>
       </Card>
 
@@ -620,8 +712,8 @@ export default function Departments() {
                     colSpan={canManageDepartments ? 5 : 4}
                     className="py-12 text-center text-muted-foreground"
                   >
-                    {query.trim()
-                      ? "Không tìm thấy phòng ban phù hợp"
+                    {query.trim() || showVacantOnly || sortOrder !== "none"
+                      ? "Không tìm thấy phòng ban phù hợp với bộ lọc hiện tại"
                       : "Chưa có phòng ban nào"}
                   </TableCell>
                 </TableRow>
@@ -854,8 +946,8 @@ export default function Departments() {
                             />
                             <CommandList>
                               <CommandEmpty>
-                                {managerCandidatesQuery.isFetching
-                                  ? "Đang tìm nhân viên..."
+                                {employeesQuery.isLoading
+                                  ? "Đang tải danh sách nhân viên..."
                                   : "Không tìm thấy nhân viên phù hợp"}
                               </CommandEmpty>
 
@@ -921,8 +1013,8 @@ export default function Departments() {
                         </PopoverContent>
                       </Popover>
                       <p className="text-xs text-muted-foreground">
-                        Danh sách được tìm kiếm từ API, không render toàn bộ
-                        nhân viên trong dropdown.
+                        Danh sách chỉ hiển thị tối đa 20 nhân viên phù hợp với
+                        từ khóa tìm kiếm.
                       </p>
                       <FormMessage />
                     </FormItem>
